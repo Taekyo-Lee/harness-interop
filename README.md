@@ -29,8 +29,8 @@
 
 | 카테고리 | 플러그인 | Target harness | ⚡ 설치 |
 |:---:|:---:|:---:|:---|
-| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) | Claude Code | `curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-claude/install.sh \| bash` |
-| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) | OpenCode | `curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/install.sh \| bash` |
+| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) | Claude Code | `curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-claude/install.sh \| bash` **(추천 · 한방 설치)**<br>`bash <(curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-claude/install.sh)` (대화형 선택) |
+| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) | OpenCode | `curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/install.sh \| bash` **(추천 · 한방 설치)**<br>`bash <(curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/install.sh)` (대화형 선택) |
 
 ## 🗂 레이아웃
 
