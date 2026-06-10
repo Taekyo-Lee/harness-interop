@@ -144,24 +144,29 @@ async function resolveCCMemoryDir(directory: string): Promise<string> {
     }
   } catch { /* pointer not written yet — CC session hasn't run */ }
 
-  // Fallback: probe CC data dirs — CLAUDE_CONFIG_DIR (production relocation
-  // var, if set) > ~/.claude (production default) > ~/.claude-fork (dev).
+  // Fallback: probe CC data dirs at the *install* level (production first) —
+  // CLAUDE_CONFIG_DIR (if set) > ~/.claude > ~/.claude-fork (dev). An existing
+  // install wins even if this project has no memory yet/anymore. Probing
+  // per-project memory dirs instead would let a stale secondary home (e.g. an
+  // old dev fork) shadow production whenever production memory is empty —
+  // exactly the ghost-memory leak observed 2026-06-10.
   const slug = directory.replace(/[^A-Za-z0-9]/g, "-")
   const bases = [
     ...(process.env.CLAUDE_CONFIG_DIR ? [process.env.CLAUDE_CONFIG_DIR] : []),
     join(homedir(), ".claude"),
     join(homedir(), ".claude-fork"),
   ]
-  const candidates = bases.map(b => join(b, "projects", slug, "memory"))
-  for (const candidate of candidates) {
+  for (const base of bases) {
     try {
-      await access(candidate)
-      await log(directory, `cc_home from fallback-probe: ${candidate}`)
-      return candidate
+      await access(join(base, "projects"))   // 설치 레벨 판정 (메모리 폴더 존재와 무관)
+      const dir = join(base, "projects", slug, "memory")
+      await log(directory, `cc_home from base-probe: ${dir}`)
+      return dir
     } catch { /* try next */ }
   }
-  await log(directory, `cc_home defaulting to: ${candidates[0]}`)
-  return candidates[0]  // none exist yet -> production default
+  const fallback = join(bases[0], "projects", slug, "memory")
+  await log(directory, `cc_home defaulting to: ${fallback}`)
+  return fallback  // no install found -> first-priority default
 }
 
 // Feature 1.7: bootstrap from-claude.md when it is missing.
