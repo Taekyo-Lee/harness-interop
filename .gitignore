@@ -1,0 +1,5 @@
+.opencode/
+
+# 저자 작업물 — 공개 안 함
+debug.log
+.claude/settings.local.json
