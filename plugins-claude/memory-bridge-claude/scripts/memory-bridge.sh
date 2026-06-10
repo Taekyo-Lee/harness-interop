@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# memory-bridge-claude — Claude Code SessionEnd hook (bundled plugin).
+# memory-bridge-claude — Claude Code memory sync hook (bundled plugin).
+# Triggers: Stop (every turn end), SessionStart (catch-up), SessionEnd (final).
+# Idempotent — repeated runs converge to the same state, so a killed session
+# (Ctrl-C) loses nothing past the last completed turn.
 #
 # Flattens this project's Claude Code memory
 #   <cc-data-dir>/projects/<slug>/memory/*.md
@@ -11,16 +14,17 @@
 # so OpenCode's own note is never sent back to it. One writer per file => no
 # clobber. Design: _reference/hook-sync-research.md §6.
 #
-# SessionEnd is non-blocking: the exit code cannot affect the session, so we
-# always exit 0. Diagnostics go to stderr (visible under `claude --debug` and
-# in the hook trace) — these stderr lines are the author's observation points.
+# We never block the session: always exit 0 (a Stop hook exiting non-zero could
+# otherwise interfere). Diagnostics go to stderr (visible under `claude --debug`
+# and in the hook trace) — these stderr lines are the author's observation points.
 
-# SessionEnd delivers a JSON payload on stdin. Read it only when stdin is a
+# Hooks deliver a JSON payload on stdin. Read it only when stdin is a
 # pipe, so the script is still safe to dry-run by hand from a terminal.
 payload=""
 [ -t 0 ] || payload="$(cat)"
 
-end_reason="$(printf '%s' "$payload" | jq -r '.end_reason // "?"' 2>/dev/null || echo '?')"
+event="$(printf '%s' "$payload" | jq -r '.hook_event_name // "?"' 2>/dev/null || echo '?')"
+reason="$(printf '%s' "$payload" | jq -r '.end_reason // .source // "-"' 2>/dev/null || echo '-')"
 
 # Project directory: env var the harness sets -> stdin .cwd -> $PWD (hand-run).
 proj="${CLAUDE_PROJECT_DIR:-}"; src="CLAUDE_PROJECT_DIR"
@@ -65,7 +69,7 @@ slug="$(printf '%s' "$proj" | tr -c '[:alnum:]' '-')"
 mem="$cc_home/projects/$slug/memory"
 out="$proj/.opencode/from-claude.md"
 
-echo "[memory-bridge-claude] end_reason=$end_reason proj=$proj (via $src)" >&2
+echo "[memory-bridge-claude] event=$event reason=$reason proj=$proj (via $src)" >&2
 echo "[memory-bridge-claude] cc_home=$cc_home (via $ch_src) slug=$slug" >&2
 
 if [ ! -d "$mem" ]; then
