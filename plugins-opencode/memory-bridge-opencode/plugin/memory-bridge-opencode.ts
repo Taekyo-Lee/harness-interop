@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { homedir } from "node:os"
 import { join, dirname } from "node:path"
-import { mkdir, access, readFile, writeFile, unlink } from "node:fs/promises"
+import { mkdir, access, readdir, readFile, writeFile, unlink } from "node:fs/promises"
 
 // Paths relative to project directory
 const PERSONAL_NOTES = ".opencode/personal.md"
@@ -121,34 +121,77 @@ async function collectNotes(directory: string): Promise<string> {
   return parts.join("\n\n")
 }
 
+// Resolve this project's CC memory directory: exact pointer written by the CC
+// hook when available, else probe known CC data dirs (production first).
+async function resolveCCMemoryDir(directory: string): Promise<string> {
+  // Plan B: read exact CC memory path from pointer file written by memory-bridge.sh
+  try {
+    const ptr = (await readFile(join(directory, CC_MEMORY_POINTER), "utf8")).trim()
+    if (ptr) {
+      console.error(`[memory-bridge-opencode] cc_home from pointer: ${ptr}`)
+      return ptr
+    }
+  } catch { /* pointer not written yet — CC session hasn't run */ }
+
+  // Fallback: probe CC data dirs — CLAUDE_CONFIG_DIR (production relocation
+  // var, if set) > ~/.claude (production default) > ~/.claude-fork (dev).
+  const slug = directory.replace(/[^A-Za-z0-9]/g, "-")
+  const bases = [
+    ...(process.env.CLAUDE_CONFIG_DIR ? [process.env.CLAUDE_CONFIG_DIR] : []),
+    join(homedir(), ".claude"),
+    join(homedir(), ".claude-fork"),
+  ]
+  const candidates = bases.map(b => join(b, "projects", slug, "memory"))
+  for (const candidate of candidates) {
+    try {
+      await access(candidate)
+      console.error(`[memory-bridge-opencode] cc_home from fallback-probe: ${candidate}`)
+      return candidate
+    } catch { /* try next */ }
+  }
+  console.error(`[memory-bridge-opencode] cc_home defaulting to: ${candidates[0]}`)
+  return candidates[0]  // none exist yet -> production default
+}
+
+// Feature 1.7: bootstrap from-claude.md when it is missing.
+// Owner of that file is the CC hook (memory-bridge-claude), which rewrites it
+// wholesale on every turn/session — but until any Claude session has run here
+// (fresh clone, wiped .opencode/, CC plugin not yet installed) the file simply
+// doesn't exist and OpenCode reads nothing. If we can see this project's CC
+// memory, flatten it once ourselves. Never overwrites an existing file.
+async function bootstrapFromClaude(directory: string): Promise<void> {
+  const target = join(directory, FROM_CLAUDE)
+  try { await access(target); return } catch { /* missing — bootstrap it */ }
+
+  const ccMemoryDir = await resolveCCMemoryDir(directory)
+  let entries: string[] = []
+  try { entries = await readdir(ccMemoryDir) } catch { /* no CC memory dir yet */ }
+  const files = entries
+    .filter(f => f.endsWith(".md") && f !== "MEMORY.md" && f !== "from-opencode.md") // echo guard 유지
+    .sort()
+
+  const parts: string[] = []
+  for (const f of files) {
+    try { parts.push((await readFile(join(ccMemoryDir, f), "utf8")).trimEnd()) } catch { /* skip unreadable */ }
+  }
+
+  const header =
+    `<!-- Bootstrapped by memory-bridge-opencode from ${ccMemoryDir}.\n` +
+    `     The Claude Code hook (memory-bridge-claude) overwrites this file\n` +
+    `     whenever a Claude Code session runs in this project. -->\n\n`
+  const body = parts.length
+    ? parts.join("\n\n") + "\n"
+    : "<!-- No Claude Code memory found for this project yet. -->\n"
+  await mkdir(dirname(target), { recursive: true })
+  await writeFile(target, header + body)
+  console.error(`[memory-bridge-opencode] bootstrapped ${FROM_CLAUDE} (${parts.length} memory file(s))`)
+}
+
 async function syncToCC(directory: string): Promise<void> {
   const notes = await collectNotes(directory)
   if (!notes) return  // nothing meaningful to sync yet
 
-  // Plan B: read exact CC memory path from pointer file written by memory-bridge.sh
-  let ccMemoryDir = ""
-  try {
-    const ptr = (await readFile(join(directory, CC_MEMORY_POINTER), "utf8")).trim()
-    if (ptr) { ccMemoryDir = ptr; console.error(`[memory-bridge-opencode] cc_home from pointer: ${ptr}`) }
-  } catch { /* pointer not written yet — CC session hasn't ended */ }
-
-  if (!ccMemoryDir) {
-    // Fallback: probe CC data dirs — CLAUDE_CONFIG_DIR (production relocation
-    // var, if set) > ~/.claude (production default) > ~/.claude-fork (dev).
-    const slug = directory.replace(/[^A-Za-z0-9]/g, "-")
-    const bases = [
-      ...(process.env.CLAUDE_CONFIG_DIR ? [process.env.CLAUDE_CONFIG_DIR] : []),
-      join(homedir(), ".claude"),
-      join(homedir(), ".claude-fork"),
-    ]
-    const candidates = bases.map(b => join(b, "projects", slug, "memory"))
-    for (const candidate of candidates) {
-      try { await access(candidate); ccMemoryDir = candidate; break } catch { /* try next */ }
-    }
-    if (!ccMemoryDir) ccMemoryDir = candidates[0]  // none exist yet -> production default
-    console.error(`[memory-bridge-opencode] cc_home from fallback-probe: ${ccMemoryDir}`)
-  }
-
+  const ccMemoryDir = await resolveCCMemoryDir(directory)
   const out = join(ccMemoryDir, "from-opencode.md")
   await mkdir(dirname(out), { recursive: true })
   await writeFile(out, notes + "\n")
@@ -195,10 +238,10 @@ export const MemoryBridgeOpenCode: Plugin = async ({ directory }) => {
   await ensureSetup(directory)
   await ensurePersonalMd(directory)
 
-  // Startup catch-up: sweep strays + sync whatever a killed previous session
-  // left behind. Combined with the per-turn sync below, exit mode (/exit,
-  // /quit, Ctrl-C, kill) never matters — the bridge converges on every load
-  // and every turn end.
+  // Startup convergence: ① from-claude.md 가 없으면 CC 메모리에서 직접 부트스트랩
+  // ② stray(beast) 메모 회수 ③ 밀린 동기화. 매 턴 종료 동기화와 합쳐져, 설치
+  // 직후든 .opencode/ 를 지운 직후든 어떤 종료 방식이든 다리가 스스로 수렴한다.
+  await bootstrapFromClaude(directory)
   await relocateBeastNotes(directory)
   await syncToCC(directory)
 
