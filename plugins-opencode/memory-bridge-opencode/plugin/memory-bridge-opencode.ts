@@ -186,24 +186,38 @@ async function bootstrapFromClaude(directory: string): Promise<void> {
     try { parts.push((await readFile(join(ccMemoryDir, f), "utf8")).trimEnd()) } catch { /* skip unreadable */ }
   }
 
+  if (!parts.length) {
+    // No CC memories = no file — mirror semantics, same as the CC hook's
+    // retraction. Creating a placeholder here would contradict a retraction.
+    await log(directory, `bootstrap skipped — no CC memories at ${ccMemoryDir}`)
+    return
+  }
   const header =
     `<!-- Bootstrapped by memory-bridge-opencode from ${ccMemoryDir}.\n` +
     `     The Claude Code hook (memory-bridge-claude) overwrites this file\n` +
     `     whenever a Claude Code session runs in this project. -->\n\n`
-  const body = parts.length
-    ? parts.join("\n\n") + "\n"
-    : "<!-- No Claude Code memory found for this project yet. -->\n"
   await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, header + body)
+  await writeFile(target, header + parts.join("\n\n") + "\n")
   await log(directory, `bootstrapped ${FROM_CLAUDE} (${parts.length} memory file(s))`)
 }
 
 async function syncToCC(directory: string): Promise<void> {
   const notes = await collectNotes(directory)
-  if (!notes) return  // nothing meaningful to sync yet
-
   const ccMemoryDir = await resolveCCMemoryDir(directory)
   const out = join(ccMemoryDir, "from-opencode.md")
+
+  if (!notes) {
+    // Distinguish "never had notes" from "notes were deleted": if we synced
+    // something before, retract it — deletions must cross the bridge too.
+    try { await access(out) } catch { return }  // never synced → nothing to do
+    try {
+      await unlink(out)
+      await removeCCMemoryIndexEntry(directory, ccMemoryDir)
+      await log(directory, `notes emptied -> retracted ${out} and its MEMORY.md entry`)
+    } catch { /* retraction failed — next sync retries */ }
+    return
+  }
+
   await mkdir(dirname(out), { recursive: true })
   await writeFile(out, notes + "\n")
   await log(directory, `synced notes -> ${out}`)
@@ -235,6 +249,21 @@ function buildSummary(notes: string): string {
   if (summary.length > 120) summary = summary.slice(0, 117) + "..."
   const rest = lines.length - shown
   return rest > 0 ? `${summary} (+${rest} more)` : summary
+}
+
+// Drop the from-opencode.md line from MEMORY.md (used when notes are emptied —
+// a dangling index entry would keep advertising memories that no longer exist).
+async function removeCCMemoryIndexEntry(directory: string, ccMemoryDir: string): Promise<void> {
+  const memoryIndexPath = join(ccMemoryDir, "MEMORY.md")
+  let content = ""
+  try { content = await readFile(memoryIndexPath, "utf8") } catch { return }
+  if (!content.includes("from-opencode.md")) return
+  const updated = content
+    .split("\n")
+    .filter(line => !line.includes("from-opencode.md"))
+    .join("\n")
+  await writeFile(memoryIndexPath, updated)
+  await log(directory, "MEMORY.md: removed from-opencode.md entry")
 }
 
 async function ensureCCMemoryIndex(directory: string, ccMemoryDir: string, notes: string): Promise<void> {
