@@ -37,17 +37,29 @@ Claude Code 와 OpenCode 를 함께 쓸 때, **project-scoped 개인 지침**을
 - 검증된 CC 플러그인 / marketplace 스키마 → **`_reference/cc-plugin-schema.md`** (docs 로 확인 완료, 재조사 불필요).
 - **빌드 순서: CC→OC 먼저, OC→CC 나중.** CC→OC 는 자기 프로젝트 안에만 쓰니 slug 매칭(G) 급소 의존이 없어 가장 안전. OC→CC 가 slug 동일성(G)을 탐.
 
-### 제안 디렉토리 레이아웃 (확정 아님 — Step 1 에서 확정)
+### 확장 컨벤션 (2026-06-10 확정 — 새 기능/플러그인 추가 시 이 규칙대로)
+
+- **1 플러그인 = 1 self-contained 폴더, 폴더명 = 플러그인명.** 같은 플러그인의 기능 확장(hook 이벤트·MCP·skill 추가)은 그 폴더 *안*에 (hooks.json 한 파일에 이벤트 여러 개 가능, MCP 는 루트 `.mcp.json`, skills 는 `skills/`). *따로 켜고 끌 단위*가 되는 기능만 새 폴더 + marketplace entry. 새 harness bridge 도 동일한 명명 (예: Codex 용이면 `memory-bridge-codex/`). 플러그인 폴더는 harness 별 grouping 아래에 둔다: CC 용은 `plugins-claude/`, OC 용은 `plugins-opencode/` (2026-06-10 grouping; 새 harness 면 `plugins-<harness>/`).
+- **플러그인 간 재사용 = `dependencies`, 사본 금지.** 다른 플러그인의 hook 동작이 필요하면 plugin.json `"dependencies": ["memory-bridge-claude"]` (자동 설치 + enable 연쇄 — `cc-plugin-schema.md` §6.5). 같은 hook 을 두 플러그인에 복사하면 2회 실행 + drift.
+- **`resources/` = 컴포넌트 수집 공간, pool entry 는 보류.** `resources/{skills,hooks,scripts}` 는 장차 들어갈 컴포넌트의 개발·수집 공간 (저자 스캐폴드 — 지우지 말 것. 빈 폴더는 git 미추적이라 내용물이 생겨야 공개 repo 에 노출됨). marketplace 노출 — anthropics/skills 패턴의 pool entry (`source: "./resources"` + `strict:false` + entry 별 컴포넌트 열거, §6 기록) — 는 *skills 가 쌓여 번들이 필요해지는* 시점에 작성. hook 은 전역 부작용 컴포넌트라 pool 보다 self-contained + `dependencies` 우선.
+- **릴리스 규율**: 설치 유저는 plugin.json `version` 문자열이 바뀔 때만 업데이트를 받음 → 릴리스마다 bump 필수. 버전 태그 = `{plugin-name}--v{version}` 컨벤션 (`claude plugin tag --push` 가 검증까지 해줌).
+- **`temp-*/` = 실험용 dummy** (gitignored). 실험 끝나면 삭제.
+
+### 디렉토리 레이아웃 (확정)
 
 ```
 harness-interop/
-├── .claude-plugin/marketplace.json   # 이 repo 를 marketplace 로
-├── claude-code/                      # CC→OC 플러그인
-│   ├── .claude-plugin/plugin.json
-│   ├── hooks/hooks.json
-│   └── scripts/memory-bridge.sh
-├── opencode/                         # OC→CC 플러그인 (배포 방식 Step 2 에서 결정)
-│   └── ...
+├── .claude-plugin/marketplace.json   # 이 repo 를 marketplace 로 (CC 플러그인 entry 만)
+├── plugins-claude/                   # Claude Code 용 플러그인 모음
+│   └── memory-bridge-claude/         # CC→OC 플러그인 (self-contained)
+│       ├── .claude-plugin/plugin.json
+│       ├── hooks/hooks.json
+│       └── scripts/memory-bridge.sh
+├── plugins-opencode/                 # OpenCode 용 플러그인 모음
+│   └── memory-bridge-opencode/       # OC→CC 플러그인 (배포용 사본 — .opencode/plugin/ 으로 복사해 설치)
+│       └── plugin/memory-bridge-opencode.ts
+├── resources/                        # 컴포넌트 수집 공간 — skills/·hooks/·scripts/ (marketplace 노출은 추후)
+├── temp-*/                           # 실험용 dummy (gitignored)
 ├── README.md                         # 설치·사용 가이드
 └── _reference/                       # 블로그에서 가져온 설계 노트 (내부용)
 ```
@@ -56,7 +68,7 @@ harness-interop/
 
 ## 설계 레퍼런스 (`_reference/`)
 
-블로그 repo 에서 복사해 온 설계 노트. (내부 source 인용 포함 — public repo 면 `_reference/` 는 `.gitignore` 권장. 내부 링크 `../index.mdx` 는 블로그 글을 가리키며 여기선 끊김 — 정상.)
+블로그 repo 에서 복사해 온 설계 노트. (내부 source 인용 포함 — `.gitignore` 등록 완료, untrack 은 저자 실행 대기 ["현재 상태" 참고]. 내부 링크 `../index.mdx` 는 블로그 글을 가리키며 여기선 끊김 — 정상.)
 
 | 파일 | 내용 |
 |---|---|
@@ -94,9 +106,12 @@ OC plugin 이 `directory` 에서 계산한 slug 가 CC 의 `CLAUDE_PROJECT_DIR` 
 
 - [x] 설계·검증 노트 `_reference/` 로 복사
 - [x] CC 플러그인/marketplace 스키마 확인 → `cc-plugin-schema.md`
-- [x] **Step 1 — CC→OC 플러그인 scaffold**: `claude-code/` 에 `plugin.json` + `hooks/hooks.json` + `scripts/memory-bridge.sh`. SessionEnd hook → `from-claude.md` 생성·갱신·삭제 모두 검증 완료 (2026-06-09). 플러그인명 `memory-bridge-claude`.
-- [x] **Step 2 — OC→CC 플러그인**: `opencode/plugin/memory-bridge-opencode.ts` (자동 발견, gitignored; export `MemoryBridgeOpenCode`). 3기능: (1) opencode.json+.gitignore 자가 설치, (2) personal.md 헤더로 메모리 행동 지침, (3) session.idle 마다 personal.md → `from-opencode.md` 복사 + MEMORY.md 요약 갱신. Plan B 채택 (`.cc-memory-path` 포인터, fallback-probe 보조). `from-opencode.md` 생성·claude-fork 자동 로드 검증 완료 (2026-06-10).
-- [ ] **Step 3 — marketplace.json + README** (설치·사용 가이드).
+- [x] **Step 1 — CC→OC 플러그인 scaffold**: `plugins-claude/memory-bridge-claude/` (폴더명 = 플러그인명 컨벤션; 옛 이름 `claude-code/`, 2026-06-10 rename + grouping) 에 `plugin.json` + `hooks/hooks.json` + `scripts/memory-bridge.sh`. SessionEnd hook → `from-claude.md` 생성·갱신·삭제 모두 검증 완료 (2026-06-09). 플러그인명 `memory-bridge-claude`.
+- [x] **Step 2 — OC→CC 플러그인**: `plugins-opencode/memory-bridge-opencode/plugin/memory-bridge-opencode.ts` (배포용 사본, tracked; 유저 프로젝트의 `.opencode/plugin/` 에 복사되면 자동 발견 — 그 런타임 사본이 gitignored. export `MemoryBridgeOpenCode`). 3기능: (1) opencode.json+.gitignore 자가 설치, (2) personal.md 헤더로 메모리 행동 지침, (3) session.idle 마다 personal.md → `from-opencode.md` 복사 + MEMORY.md 요약 갱신. Plan B 채택 (`.cc-memory-path` 포인터, fallback-probe 보조). `from-opencode.md` 생성·claude-fork 자동 로드 검증 완료 (2026-06-10).
+- [ ] **Step 3 — marketplace.json + README**: marketplace.json 완성 (2026-06-10, docs 그라운딩 — §6 에 현재형 기록), README 초안 존재. ⬜ 저자 검증 남음: `claude plugin validate ./plugins-claude/memory-bridge-claude` → 로컬 `/plugin marketplace add <repo 절대경로>` → **marketplace 경유 설치**로 SessionEnd 발화 확인 (기존 검증은 직접 설치 경로였음) → push 후 `Taekyo-Lee/harness-interop` 경유 + README 의 raw URL 재확인.
+- [ ] **production-target 보정 재검증** (2026-06-10 코드 수정): 두 플러그인의 CC 데이터 디렉토리 추정을 production 우선으로 변경 — `CLAUDE_CONFIG_DIR` > `CLAUDE_HOME` > walk-up(sh만) > probe `~/.claude` → `~/.claude-fork`. OC 쪽 "아무것도 없으면 `~/.claude-fork` 에 생성" 버그 수정 (이제 `~/.claude`). ⬜ fork 재검증 — pointer(`.cc-memory-path`) 경로가 우선이라 동작 유지 예상, trace 의 `cc_home from pointer` 라인으로 확인. ⬜ production claude 로 e2e 1회 — `~/.claude/projects/<slug>/memory/from-opencode.md` 도착 + `from-claude.md` 생성 확인.
+- [ ] (선택) **temp-plugin 의존성 실험**: marketplace.json 에 임시 entry `{ "name": "temp-plugin-claude", "source": "./temp-plugin-claude" }` 추가 → 설치 출력 끝의 의존성 자동 설치 목록 + `claude plugin disable memory-bridge-claude` 거부 관찰 → entry 제거 + `temp-plugin-claude/` 삭제. (fork 가 v2.1.143 미만이면 enable 연쇄 없음 주의.)
+- [ ] **publish 전 내부 노트 untrack** — `.gitignore` 에 `CLAUDE.md`·`_reference/` 등록됨 (2026-06-10). 위치는 그대로 둠: **CLAUDE.md 는 루트에 있어야 세션이 auto-load** (git 추적 여부와 무관하게 파일시스템에서 읽음). 남은 것(저자): `git rm --cached CLAUDE.md && git rm --cached -r _reference` → commit. ⚠ 둘 다 이미 origin 에 push 된 이력이 있어 **과거 commit 에는 그대로 남음** — private→public 전환이라면 history 정리(orphan-branch squash 또는 `git filter-repo`) 또는 새 repo 로 시작 필요. 또한 untracked 파일은 다른 PC 의 clone 에 안 따라가니 (HOME/COMPANY PC) 개인 노트는 별도 동기화.
 - [ ] (블로그) 동작 확인 후 블로그 §3 를 양방향 artifact 로 재작성 + 링크 채우기. ← 블로그 repo 에서.
 
 ---
