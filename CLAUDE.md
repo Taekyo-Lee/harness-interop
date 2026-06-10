@@ -1,4 +1,4 @@
-# multi-harness-plugins — 작업 맥락
+# harness-interop — 작업 맥락
 
 이 repo 에서 일하는 Claude Code 세션을 위한 운영 노트. 블로그 repo (`taekyo-lee.github.io`) 에서 설계해 온 것을 **실제 배포물**로 옮겨 만드는 곳.
 
@@ -33,14 +33,14 @@ Claude Code 와 OpenCode 를 함께 쓸 때, **project-scoped 개인 지침**을
 - **배포 형태 = 설치형 플러그인** (복붙 레퍼런스 아님).
   - CC 쪽 = **Claude Code 플러그인** (`SessionEnd` hook + 셸 스크립트를 번들).
   - OC 쪽 = **`@opencode-ai/plugin`** 모듈.
-- **이 repo 가 marketplace 역할** — 루트에 `.claude-plugin/marketplace.json` 을 두면 `/plugin marketplace add Taekyo-Lee/multi-harness-plugins` 로 설치 가능.
+- **이 repo 가 marketplace 역할** — 루트에 `.claude-plugin/marketplace.json` 을 두면 `/plugin marketplace add Taekyo-Lee/harness-interop` 로 설치 가능. (repo/마켓플레이스 이름 = `harness-interop`; 옛 이름 `multi-harness-plugins` 에서 변경. GitHub repo rename + 로컬 디렉토리는 저자가 별도 처리 — 로컬 dir 을 옮기면 CC memory slug 도 바뀜에 주의.)
 - 검증된 CC 플러그인 / marketplace 스키마 → **`_reference/cc-plugin-schema.md`** (docs 로 확인 완료, 재조사 불필요).
 - **빌드 순서: CC→OC 먼저, OC→CC 나중.** CC→OC 는 자기 프로젝트 안에만 쓰니 slug 매칭(G) 급소 의존이 없어 가장 안전. OC→CC 가 slug 동일성(G)을 탐.
 
 ### 제안 디렉토리 레이아웃 (확정 아님 — Step 1 에서 확정)
 
 ```
-multi-harness-plugins/
+harness-interop/
 ├── .claude-plugin/marketplace.json   # 이 repo 를 marketplace 로
 ├── claude-code/                      # CC→OC 플러그인
 │   ├── .claude-plugin/plugin.json
@@ -104,6 +104,6 @@ OC plugin 이 `directory` 에서 계산한 slug 가 CC 의 `CLAUDE_PROJECT_DIR` 
 ## 저자 / 공개 정보 (README·manifest 용)
 
 - 표시 이름: **Jet** (1인칭 서명) / 브랜드 **Guru Cat**. 본명은 표시 텍스트에 안 씀 (GitHub URL `Taekyo-Lee` 노출은 허용).
-- GitHub: https://github.com/Taekyo-Lee · repo: `Taekyo-Lee/multi-harness-plugins`
+- GitHub: https://github.com/Taekyo-Lee · repo: `Taekyo-Lee/harness-interop`
 - Email (공개용): gurucat72@gmail.com
 - 회사/기업명 구체 언급 회피.
