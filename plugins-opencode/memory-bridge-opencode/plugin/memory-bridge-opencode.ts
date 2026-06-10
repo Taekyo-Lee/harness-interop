@@ -201,15 +201,29 @@ async function syncToCC(directory: string): Promise<void> {
   await ensureCCMemoryIndex(ccMemoryDir, notes)
 }
 
-function buildSummary(personalContent: string): string {
-  // Skip HTML comment blocks and headings; collect meaningful lines
-  const lines = personalContent.split("\n").filter(line => {
-    const l = line.trim()
-    return l && !l.startsWith("<!--") && !l.startsWith("-->") && !l.startsWith("#")
-  })
+function buildSummary(notes: string): string {
+  // Skip HTML comment blocks and headings; collect meaningful fact lines
+  const lines = notes
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("<!--") && !l.startsWith("-->") && !l.startsWith("#"))
+    .map(l => l.replace(/^[-*]\s+/, ""))
   if (!lines.length) return "OpenCode personal notes (empty)"
-  const joined = lines.map(l => l.replace(/^[-*]\s+/, "")).join("; ")
-  return joined.length > 120 ? joined.slice(0, 117) + "..." : joined
+
+  // Fit as many facts as ~110 chars allow, then surface the hidden count —
+  // truncation becomes information ("+N more") instead of silent loss, so the
+  // index line stays one line and bounded no matter how many notes accumulate.
+  let summary = lines[0]
+  let shown = 1
+  for (let i = 1; i < lines.length; i++) {
+    const next = `${summary}; ${lines[i]}`
+    if (next.length > 110) break
+    summary = next
+    shown++
+  }
+  if (summary.length > 120) summary = summary.slice(0, 117) + "..."
+  const rest = lines.length - shown
+  return rest > 0 ? `${summary} (+${rest} more)` : summary
 }
 
 async function ensureCCMemoryIndex(ccMemoryDir: string, notes: string): Promise<void> {
