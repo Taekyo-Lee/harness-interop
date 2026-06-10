@@ -12,6 +12,14 @@ const PLUGIN_FILE = ".opencode/plugin/memory-bridge-opencode.ts"
 // model to store memories at the VS Code Copilot convention path below. We
 // can't out-prompt a system message, so we absorb that path as a second source.
 const BEAST_MEMORY = ".github/instructions/memory.instruction.md"
+
+// Genuine VS Code Copilot instruction files declare `applyTo:` in their
+// frontmatter — that's user configuration, not a stray memory. The bridge
+// must never ingest or delete such a file, whatever scope it runs at.
+function isCopilotConfig(raw: string): boolean {
+  const fm = raw.match(/^---\n([\s\S]*?)\n---/)
+  return !!fm && /^\s*applyTo\s*:/m.test(fm[1])
+}
 const LOG_FILE = ".opencode/memory-bridge.log"
 
 // Diagnostics go to a per-session log file (truncated on every plugin load),
@@ -94,6 +102,11 @@ async function relocateBeastNotes(directory: string): Promise<void> {
   let raw = ""
   try { raw = await readFile(strayPath, "utf8") } catch { return }  // no stray file — done
 
+  if (isCopilotConfig(raw)) {
+    await log(directory, `skip ${BEAST_MEMORY} — real Copilot instructions file (applyTo:), not a stray memory`)
+    return
+  }
+
   const body = raw
     .replace(/^---\n[\s\S]*?\n---\n?/, "")   // strip beast-style frontmatter
     .trim()
@@ -123,6 +136,7 @@ async function collectNotes(directory: string): Promise<string> {
   for (const rel of [PERSONAL_NOTES, BEAST_MEMORY]) {
     let text = ""
     try { text = await readFile(join(directory, rel), "utf8") } catch { continue }
+    if (rel === BEAST_MEMORY && isCopilotConfig(text)) continue  // 진짜 Copilot 설정은 메모 아님
     text = text
       .replace(/^---\n[\s\S]*?\n---\n?/, "")        // strip leading frontmatter (beast format)
       .replace(/^<!--[\s\S]*?-->\s*/, "")           // strip our guide header comment
