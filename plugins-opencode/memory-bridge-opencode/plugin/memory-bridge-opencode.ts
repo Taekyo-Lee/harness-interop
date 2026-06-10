@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { homedir } from "node:os"
 import { join, dirname } from "node:path"
-import { mkdir, access, readdir, readFile, writeFile, unlink } from "node:fs/promises"
+import { mkdir, access, appendFile, readdir, readFile, writeFile, unlink } from "node:fs/promises"
 
 // Paths relative to project directory
 const PERSONAL_NOTES = ".opencode/personal.md"
@@ -12,6 +12,17 @@ const PLUGIN_FILE = ".opencode/plugin/memory-bridge-opencode.ts"
 // model to store memories at the VS Code Copilot convention path below. We
 // can't out-prompt a system message, so we absorb that path as a second source.
 const BEAST_MEMORY = ".github/instructions/memory.instruction.md"
+const LOG_FILE = ".opencode/memory-bridge.log"
+
+// Diagnostics go to a per-session log file (truncated on every plugin load),
+// NOT to stderr — console output bleeds into OpenCode's TUI. Set
+// MEMORY_BRIDGE_DEBUG=1 to additionally echo to stderr while debugging.
+async function log(directory: string, msg: string): Promise<void> {
+  if (process.env.MEMORY_BRIDGE_DEBUG) console.error(`[memory-bridge-opencode] ${msg}`)
+  try {
+    await appendFile(join(directory, LOG_FILE), `[${new Date().toISOString()}] ${msg}\n`)
+  } catch { /* logging must never break the bridge */ }
+}
 
 // Header injected into personal.md so OpenCode knows where to write memories
 const PERSONAL_HEADER =
@@ -31,7 +42,7 @@ async function ensureSetup(directory: string): Promise<void> {
   if (toAdd.length) {
     cfg.instructions = [...existing, ...toAdd]
     await writeFile(ocJsonPath, JSON.stringify(cfg, null, 2) + "\n")
-    console.error(`[memory-bridge-opencode] opencode.json: added instructions ${toAdd.join(", ")}`)
+    await log(directory, `opencode.json: added instructions ${toAdd.join(", ")}`)
   }
 
   // .gitignore — add entries not already covered by an existing pattern
@@ -50,13 +61,13 @@ async function ensureSetup(directory: string): Promise<void> {
     return false
   }
 
-  const missing = [PERSONAL_NOTES, FROM_CLAUDE, CC_MEMORY_POINTER, PLUGIN_FILE].filter(
+  const missing = [PERSONAL_NOTES, FROM_CLAUDE, CC_MEMORY_POINTER, PLUGIN_FILE, LOG_FILE].filter(
     e => !isCovered(e),
   )
   if (missing.length) {
     const newGi = gi.trimEnd() + "\n" + missing.join("\n") + "\n"
     await writeFile(gitignorePath, newGi)
-    console.error(`[memory-bridge-opencode] .gitignore: added ${missing.join(", ")}`)
+    await log(directory, `.gitignore: added ${missing.join(", ")}`)
   }
 }
 
@@ -68,7 +79,7 @@ async function ensurePersonalMd(directory: string): Promise<void> {
   if (!content.startsWith("<!--")) {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, PERSONAL_HEADER + content)
-    console.error("[memory-bridge-opencode] personal.md: added memory-guide header")
+    await log(directory, "personal.md: added memory-guide header")
   }
 }
 
@@ -95,11 +106,11 @@ async function relocateBeastNotes(directory: string): Promise<void> {
     const base = personal.trimEnd() || PERSONAL_HEADER.trimEnd()
     await mkdir(dirname(personalPath), { recursive: true })
     await writeFile(personalPath, base + "\n\n" + body + "\n")
-    console.error(`[memory-bridge-opencode] relocated stray memory: ${BEAST_MEMORY} -> ${PERSONAL_NOTES}`)
+    await log(directory, `relocated stray memory: ${BEAST_MEMORY} -> ${PERSONAL_NOTES}`)
   }
   try {
     await unlink(strayPath)
-    console.error(`[memory-bridge-opencode] removed ${BEAST_MEMORY}`)
+    await log(directory, `removed ${BEAST_MEMORY}`)
   } catch { /* deletion failed — the merge fallback below still picks it up */ }
 }
 
@@ -128,7 +139,7 @@ async function resolveCCMemoryDir(directory: string): Promise<string> {
   try {
     const ptr = (await readFile(join(directory, CC_MEMORY_POINTER), "utf8")).trim()
     if (ptr) {
-      console.error(`[memory-bridge-opencode] cc_home from pointer: ${ptr}`)
+      await log(directory, `cc_home from pointer: ${ptr}`)
       return ptr
     }
   } catch { /* pointer not written yet — CC session hasn't run */ }
@@ -145,11 +156,11 @@ async function resolveCCMemoryDir(directory: string): Promise<string> {
   for (const candidate of candidates) {
     try {
       await access(candidate)
-      console.error(`[memory-bridge-opencode] cc_home from fallback-probe: ${candidate}`)
+      await log(directory, `cc_home from fallback-probe: ${candidate}`)
       return candidate
     } catch { /* try next */ }
   }
-  console.error(`[memory-bridge-opencode] cc_home defaulting to: ${candidates[0]}`)
+  await log(directory, `cc_home defaulting to: ${candidates[0]}`)
   return candidates[0]  // none exist yet -> production default
 }
 
@@ -184,7 +195,7 @@ async function bootstrapFromClaude(directory: string): Promise<void> {
     : "<!-- No Claude Code memory found for this project yet. -->\n"
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, header + body)
-  console.error(`[memory-bridge-opencode] bootstrapped ${FROM_CLAUDE} (${parts.length} memory file(s))`)
+  await log(directory, `bootstrapped ${FROM_CLAUDE} (${parts.length} memory file(s))`)
 }
 
 async function syncToCC(directory: string): Promise<void> {
@@ -195,10 +206,10 @@ async function syncToCC(directory: string): Promise<void> {
   const out = join(ccMemoryDir, "from-opencode.md")
   await mkdir(dirname(out), { recursive: true })
   await writeFile(out, notes + "\n")
-  console.error(`[memory-bridge-opencode] synced notes -> ${out}`)
+  await log(directory, `synced notes -> ${out}`)
 
   // Keep MEMORY.md index up-to-date so CC sees the actual facts
-  await ensureCCMemoryIndex(ccMemoryDir, notes)
+  await ensureCCMemoryIndex(directory, ccMemoryDir, notes)
 }
 
 function buildSummary(notes: string): string {
@@ -226,7 +237,7 @@ function buildSummary(notes: string): string {
   return rest > 0 ? `${summary} (+${rest} more)` : summary
 }
 
-async function ensureCCMemoryIndex(ccMemoryDir: string, notes: string): Promise<void> {
+async function ensureCCMemoryIndex(directory: string, ccMemoryDir: string, notes: string): Promise<void> {
   const memoryIndexPath = join(ccMemoryDir, "MEMORY.md")
   let content = ""
   try { content = await readFile(memoryIndexPath, "utf8") } catch { return }
@@ -239,15 +250,21 @@ async function ensureCCMemoryIndex(ccMemoryDir: string, notes: string): Promise<
     const updated = content.replace(/^.*from-opencode\.md.*$/m, entry)
     if (updated !== content) {
       await writeFile(memoryIndexPath, updated)
-      console.error(`[memory-bridge-opencode] MEMORY.md: updated summary -> ${summary}`)
+      await log(directory, `MEMORY.md: updated summary -> ${summary}`)
     }
   } else {
     await writeFile(memoryIndexPath, content.trimEnd() + "\n" + entry + "\n")
-    console.error(`[memory-bridge-opencode] MEMORY.md: added entry -> ${summary}`)
+    await log(directory, `MEMORY.md: added entry -> ${summary}`)
   }
 }
 
 export const MemoryBridgeOpenCode: Plugin = async ({ directory }) => {
+  // Fresh log file per load — bounded size, last session's noise gone.
+  try {
+    await mkdir(join(directory, ".opencode"), { recursive: true })
+    await writeFile(join(directory, LOG_FILE), `[${new Date().toISOString()}] plugin loaded (${directory})\n`)
+  } catch { /* logging must never break the bridge */ }
+
   // Run setup every session start (idempotent)
   await ensureSetup(directory)
   await ensurePersonalMd(directory)
