@@ -5,10 +5,12 @@
 #   /plugin install <플러그인>@harness-interop
 #
 # 사용:
-#   ./install-cc-plugins.sh                              # 대화형: 체크박스 → 라디오 선택
-#   ./install-cc-plugins.sh user                         # 범위만 지정, 플러그인은 대화형 선택
-#   ./install-cc-plugins.sh user memory-bridge-claude    # 완전 비대화형 (범위 + 플러그인들)
-# TTY 가 없으면(curl | bash 등) 전체 플러그인을 user 범위로 설치합니다.
+#   ./install-cc-plugins.sh                               # 대화형: 체크박스 → 위치 확정(local 고정)
+#   ./install-cc-plugins.sh local                         # 범위만 지정, 플러그인은 대화형 선택
+#   ./install-cc-plugins.sh local memory-bridge-claude    # 완전 비대화형 (범위 + 플러그인들)
+# TTY 가 없으면(curl | bash 등) 전체 플러그인을 local 범위로 설치합니다.
+# (개인 지침은 누구와도 공유하지 않는 게 철학 — UI 에선 local 고정이며 user/project 는
+#  비활성으로 표시됩니다. 정말 필요하면 인자로만 강제 가능: 책임은 사용자에게.)
 set -euo pipefail
 
 MARKETPLACE_REPO="Taekyo-Lee/harness-interop"
@@ -20,9 +22,10 @@ PLUGINS_DIR="$SCRIPT_DIR/plugins-claude"
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   B=$'\033[1m'; D=$'\033[2m'; CY=$'\033[36m'; GR=$'\033[32m'; RD=$'\033[31m'; R=$'\033[0m'
   BN=$'\033[44m\033[97;1m'   # 배너: 파랑 배경 + 밝은 흰 글자
+  ST=$'\033[9m'              # 취소선 (비활성 옵션)
   can_redraw=1
 else
-  B=""; D=""; CY=""; GR=""; RD=""; R=""; BN=""
+  B=""; D=""; CY=""; GR=""; RD=""; R=""; BN=""; ST=""
   can_redraw=""
 fi
 say()  { printf '%b\n' "$*"; }
@@ -142,29 +145,49 @@ if [ -t 0 ] && [ -t 1 ]; then
     done
     show_cursor
   fi
-  # [2/2] 설치 범위 — 라디오 버튼: ↑↓ 이동(커서 = 선택), enter 확정
+  # [2/2] 설치 범위 — local 고정. user/project 는 제거하지 않고 "비활성"으로 보여줌:
+  # 개인 지침은 누구와도 공유하지 않는다는 철학을 화면 자체가 설명하도록.
   if [ -z "$scope" ]; then
     s_names=("user" "project" "local")
-    s_descs=("이 머신 전체 — 모든 프로젝트에서 동작  ${D}[기본]${R}" \
-             "이 프로젝트에서, 팀과 공유 — ${D}.claude/settings.json (commit 대상)${R}" \
-             "이 프로젝트에서, 나만 — ${D}.claude/settings.local.json (gitignored)${R}")
+    s_enabled=("" "" "1")
+    s_descs=("${D}이 머신 전체 — 모든 프로젝트에서 동작  [비활성]${R}" \
+             "${D}이 프로젝트에서, 팀과 공유 — .claude/settings.json  [비활성]${R}" \
+             "이 프로젝트에서, 나만 — ${D}.claude/settings.local.json (gitignored)${R}  ${GR}[고정]${R}")
+    s_subs=("${D}프로젝트 단위 개인 지침이라는 설계와 어긋나 막아두었습니다${R}" \
+            "${D}settings.json 은 commit 되어 팀과 공유됩니다 — 개인 지침은 공유하지 않는 게 철학${R}" \
+            "")
     s_total=3
-    s_cur=0
+    s_cur=2
+    s_notice=""
     s_lines=0
 
     draw_scope() {
       [ "$s_lines" -gt 0 ] && printf '\033[%dA\033[0J' "$s_lines"
       local n=0 i=0 mark ptr label
       say ""
-      say "${B}[2/2] 설치 위치${R}  ${D}(현재 프로젝트: $PWD) · ↑↓ 이동 · enter 확정 · q 취소${R}"
+      say "${B}[2/2] 설치 위치${R}  ${D}개인 지침은 공유하지 않습니다 — ${R}${B}local 고정${R}  ${D}(현재 프로젝트: $PWD) · enter 확정 · q 취소${R}"
       n=2
       i=0
       while [ "$i" -lt "$s_total" ]; do
-        if [ "$i" -eq "$s_cur" ]; then mark="${GR}(●)${R}"; ptr="${CY}❯${R}"; label="${B}${CY}${s_names[$i]}${R}"; else mark="${D}( )${R}"; ptr=" "; label="${s_names[$i]}"; fi
+        if [ "$i" -eq "$s_cur" ]; then ptr="${CY}❯${R}"; else ptr=" "; fi
+        if [ -n "${s_enabled[$i]}" ]; then
+          if [ "$i" -eq "$s_cur" ]; then mark="${GR}(●)${R}"; label="${B}${CY}${s_names[$i]}${R}"; else mark="( )"; label="${s_names[$i]}"; fi
+        else
+          mark="${D}(✕)${R}"; label="${D}${ST}${s_names[$i]}${R}"
+        fi
         say "  $ptr $mark $label  ${s_descs[$i]}"
         n=$((n + 1))
+        if [ -n "${s_subs[$i]}" ]; then
+          say "          ${s_subs[$i]}"
+          n=$((n + 1))
+        fi
         i=$((i + 1))
       done
+      if [ -n "$s_notice" ]; then
+        say "  ${RD}$s_notice${R}"
+        n=$((n + 1))
+        s_notice=""
+      fi
       s_lines="$n"
     }
 
@@ -173,7 +196,10 @@ if [ -t 0 ] && [ -t 1 ]; then
       draw_scope
       IFS= read -rsn1 key || true
       case "$key" in
-        "")  scope="${s_names[$s_cur]}"; break ;;
+        "")
+          if [ -n "${s_enabled[$s_cur]}" ]; then scope="${s_names[$s_cur]}"; break; fi
+          s_notice="'${s_names[$s_cur]}' 은(는) 비활성 옵션입니다 — local 로 확정하세요"
+          ;;
         q|Q) die "취소했습니다." ;;
         k)   s_cur=$(( (s_cur - 1 + s_total) % s_total )) ;;
         j)   s_cur=$(( (s_cur + 1) % s_total )) ;;
@@ -195,8 +221,8 @@ if [ -t 0 ] && [ -t 1 ]; then
     show_cursor
   fi
 else
-  # 비대화형 기본값
-  [ -n "$scope" ] || scope="user"
+  # 비대화형 기본값 (철학 기본: local)
+  [ -n "$scope" ] || scope="local"
   [ "${#selected[@]}" -gt 0 ] || selected=("${plugins[@]}")
 fi
 
