@@ -34,7 +34,7 @@ done
 
 echo "[$REF] 2. CC 플러그인 계약 (marketplace.json 에서 유도)"
 if command -v jq >/dev/null 2>&1; then
-  cc_sources="$(git show "$REF:.claude-plugin/marketplace.json" 2>/dev/null | jq -r '.plugins[].source' 2>/dev/null | sed 's|^\./||')"
+  cc_sources="$(git show "$REF:.claude-plugin/marketplace.json" 2>/dev/null | jq -r '.plugins[].source' 2>/dev/null | sed 's|^\./||' || true)"
   [ -n "$cc_sources" ] || bad "marketplace.json 에서 source 를 읽지 못함"
   for s in $cc_sources; do
     # 필수 구성: manifest + 자체 README
@@ -42,7 +42,7 @@ if command -v jq >/dev/null 2>&1; then
       if has "$s/$f"; then ok "$s/$f"; else bad "누락: $s/$f"; fi
     done
     # manifest 에 version 이 있는가 (없으면 설치자가 업데이트를 못 받음)
-    v="$(git show "$REF:$s/.claude-plugin/plugin.json" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)"
+    v="$(git show "$REF:$s/.claude-plugin/plugin.json" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
     if [ -n "$v" ]; then ok "$s: version $v"; else bad "$s: plugin.json 에 version 없음"; fi
   done
 else
@@ -96,9 +96,9 @@ urls=""
 for rmd in $(printf '%s\n' "$tree" | grep -E '(^|/)README\.md$'); do
   urls="$urls $(git show "$REF:$rmd" 2>/dev/null \
     | grep -o 'raw\.githubusercontent\.com/Taekyo-Lee/harness-interop/main/[^ )"`]*' \
-    | sed 's|.*/main/||' | sed 's|[\\]*$||')"
+    | sed 's|.*/main/||' | sed 's|[\\]*$||' || true)"   # URL 없는 README 는 정상 (grep exit 1 무시)
 done
-urls="$(printf '%s\n' $urls | sed '/^$/d' | sort -u)"
+urls="$(printf '%s\n' $urls | sed '/^$/d' | sort -u || true)"
 for u in $urls; do
   if has "$u"; then ok "raw URL 실존: $u"; else bad "raw URL 404 예정: $u"; fi
 done
