@@ -4,9 +4,9 @@
 CLAUDE.local.md
 
 # ── 내부 운영 노트 — publish 시 비공개 (이미 tracked 인 것은 저자가 git rm --cached 로 untrack)
-/CLAUDE.md
-/AGENTS.md
-/_reference/
+CLAUDE.md
+AGENTS.md
+_reference/
 
 # ── 실험용 dummy 플러그인 (배포물 아님)
 /temp-*/
