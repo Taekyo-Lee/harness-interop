@@ -98,6 +98,8 @@ curl -fsSL \
   -o .opencode/plugin/memory-bridge-opencode.ts
 ```
 
+repo 를 clone 했다면 `./install-oc-plugins.sh` 가 같은 일을 해줍니다 (체크박스로 플러그인 선택 + project/global 위치 선택).
+
 그다음 그 프로젝트에서 OpenCode 를 열면 플러그인이 알아서:
 
 - `opencode.json` 의 `instructions` 에 `personal.md` 와 `from-claude.md` 를 추가하고,
