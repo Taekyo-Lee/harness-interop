@@ -5,7 +5,7 @@
 #   /plugin install <플러그인>@harness-interop
 #
 # 사용:
-#   ./install-cc-plugins.sh                              # 대화형: 플러그인 선택 → 설치 범위 선택
+#   ./install-cc-plugins.sh                              # 대화형: ↑↓+space 체크박스 → 설치 범위
 #   ./install-cc-plugins.sh user                         # 범위만 지정, 플러그인은 대화형 선택
 #   ./install-cc-plugins.sh user memory-bridge-claude    # 완전 비대화형 (범위 + 플러그인들)
 # TTY 가 없으면(curl | bash 등) 전체 플러그인을 user 범위로 설치합니다.
@@ -16,14 +16,18 @@ MARKETPLACE_NAME="harness-interop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGINS_DIR="$SCRIPT_DIR/plugins-claude"
 
-# ── 색 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문)
+# ── 색·커서 제어 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문·재그리기 없음)
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   B=$'\033[1m'; D=$'\033[2m'; CY=$'\033[36m'; GR=$'\033[32m'; RD=$'\033[31m'; R=$'\033[0m'
+  can_redraw=1
 else
   B=""; D=""; CY=""; GR=""; RD=""; R=""
+  can_redraw=""
 fi
 say()  { printf '%b\n' "$*"; }
 die()  { say "${RD}✗ $*${R}" >&2; exit 1; }
+show_cursor() { [ -n "$can_redraw" ] && printf '\033[?25h' || true; }
+trap show_cursor EXIT
 
 command -v claude >/dev/null 2>&1 \
   || die "'claude' CLI 를 찾을 수 없습니다 — Claude Code 설치 후 다시 실행하세요."
@@ -47,37 +51,96 @@ scope="${1:-}"
 selected=()
 [ "$#" -ge 2 ] && selected=("${@:2}")
 
-if [ -t 0 ]; then
-  # [1/2] 플러그인 선택 (인자로 받지 않았을 때)
+# 대화형 체크박스는 stdin/stdout 모두 TTY 일 때만 (아니면 비대화형 기본값)
+if [ -t 0 ] && [ -t 1 ]; then
+  # [1/2] 플러그인 선택 — ↑↓ 이동, space 토글, a 모두, enter 확정, q/ESC 취소
   if [ "${#selected[@]}" -eq 0 ]; then
-    say ""
-    say "${B}[1/2] 설치할 플러그인${R}"
-    i=1
+    descs=()
     for name in "${plugins[@]}"; do
-      desc=""
+      d_=""
       pj="$PLUGINS_DIR/$name/.claude-plugin/plugin.json"
       if command -v jq >/dev/null 2>&1 && [ -f "$pj" ]; then
-        desc="$(jq -r '.description // ""' "$pj" 2>/dev/null || true)"
+        d_="$(jq -r '.description // ""' "$pj" 2>/dev/null || true)"
       fi
-      say "  ${CY}$i)${R} ${B}$name${R}"
-      [ -n "$desc" ] && say "     ${D}$desc${R}"
-      i=$((i + 1))
+      descs+=("$d_")
     done
-    printf '%b' "  선택 ${D}(공백/쉼표 구분 · a 또는 엔터 = 전부)${R} ❯ "
-    read -r answer
-    answer="${answer//,/ }"
-    if [ -z "$answer" ] || [ "$answer" = "a" ] || [ "$answer" = "A" ]; then
-      selected=("${plugins[@]}")
-    else
-      for tok in $answer; do
-        case "$tok" in
-          *[!0-9]*) die "잘못된 선택: $tok" ;;
-        esac
-        idx=$((tok - 1))
-        { [ "$idx" -ge 0 ] && [ "$idx" -lt "${#plugins[@]}" ]; } || die "범위 밖 번호: $tok"
-        selected+=("${plugins[$idx]}")
+    checked=()
+    for _ in "${plugins[@]}"; do checked+=("1"); done   # 기본: 전부 체크
+    total="${#plugins[@]}"
+    cur=0
+    notice=""
+    menu_lines=0
+
+    draw_menu() {
+      [ "$menu_lines" -gt 0 ] && printf '\033[%dA\033[0J' "$menu_lines"
+      local n=0 i=0 box ptr label
+      say ""
+      say "${B}[1/2] 설치할 플러그인${R}  ${D}↑↓ 이동 · space 토글 · a 모두 선택/해제 · enter 확정 · q 취소${R}"
+      n=2
+      i=0
+      for name in "${plugins[@]}"; do
+        if [ -n "${checked[$i]}" ]; then box="${GR}[✓]${R}"; else box="${D}[ ]${R}"; fi
+        if [ "$i" -eq "$cur" ]; then ptr="${CY}❯${R}"; label="${B}${CY}$name${R}"; else ptr=" "; label="$name"; fi
+        say "  $ptr $box $label"
+        n=$((n + 1))
+        if [ -n "${descs[$i]}" ]; then
+          say "          ${D}${descs[$i]}${R}"
+          n=$((n + 1))
+        fi
+        i=$((i + 1))
       done
-    fi
+      if [ -n "$notice" ]; then
+        say "  ${RD}$notice${R}"
+        n=$((n + 1))
+        notice=""
+      fi
+      menu_lines="$n"
+    }
+
+    toggle_all() {
+      local all="1" i=0
+      for _ in "${plugins[@]}"; do [ -z "${checked[$i]}" ] && all=""; i=$((i + 1)); done
+      i=0
+      for _ in "${plugins[@]}"; do
+        if [ -n "$all" ]; then checked[$i]=""; else checked[$i]="1"; fi
+        i=$((i + 1))
+      done
+    }
+
+    [ -n "$can_redraw" ] && printf '\033[?25l'   # 커서 숨김 (EXIT trap 이 복원)
+    while :; do
+      draw_menu
+      IFS= read -rsn1 key || true
+      case "$key" in
+        "")   # enter = 확정
+          selected=()
+          i=0
+          for name in "${plugins[@]}"; do
+            [ -n "${checked[$i]}" ] && selected+=("$name")
+            i=$((i + 1))
+          done
+          [ "${#selected[@]}" -gt 0 ] && break
+          notice="하나 이상 체크해야 합니다 (space 로 체크)"
+          ;;
+        " ")  # space = 현재 항목 토글
+          if [ -n "${checked[$cur]}" ]; then checked[$cur]=""; else checked[$cur]="1"; fi
+          ;;
+        a|A) toggle_all ;;
+        q|Q) die "취소했습니다." ;;
+        k)   cur=$(( (cur - 1 + total) % total )) ;;
+        j)   cur=$(( (cur + 1) % total )) ;;
+        $'\033')  # ESC 시퀀스: 화살표 or 단독 ESC
+          rest=""
+          IFS= read -rsn2 -t 1 rest || true
+          case "$rest" in
+            "[A") cur=$(( (cur - 1 + total) % total )) ;;   # ↑
+            "[B") cur=$(( (cur + 1) % total )) ;;           # ↓
+            "")   die "취소했습니다." ;;                      # 단독 ESC
+          esac
+          ;;
+      esac
+    done
+    show_cursor
   fi
   # [2/2] 설치 범위 선택 (인자로 받지 않았을 때)
   if [ -z "$scope" ]; then
