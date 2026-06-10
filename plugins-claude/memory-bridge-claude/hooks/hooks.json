@@ -1,6 +1,29 @@
 {
-  "description": "Sync Claude Code memory to OpenCode on session end",
+  "description": "Sync Claude Code memory to OpenCode — every turn end (Stop), plus session start/end catch-up",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/memory-bridge.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/memory-bridge.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "matcher": "*",
