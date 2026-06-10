@@ -1,0 +1,8 @@
+{
+  "name": "memory-bridge-claude",
+  "version": "0.1.0",
+  "description": "Flatten Claude Code project memory into OpenCode's instruction file on session end.",
+  "author": { "name": "Jet", "email": "gurucat72@gmail.com" },
+  "repository": "https://github.com/Taekyo-Lee/multi-harness-plugins",
+  "license": "MIT"
+}
