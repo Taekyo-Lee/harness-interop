@@ -1,11 +1,14 @@
 {
   "name": "harness-interop",
-  "owner": { "name": "Jet" },
+  "owner": { "name": "Jet", "email": "gurucat72@gmail.com" },
+  "description": "Sync project-scoped personal instructions between Claude Code and OpenCode, both ways, without clobbering either side.",
+  "version": "0.1.0",
   "plugins": [
     {
       "name": "memory-bridge-claude",
-      "source": "./claude-code",
-      "description": "Memory Bridge (Claude Code side): flatten project memory into .opencode/from-claude.md on session end"
+      "source": "./plugins-claude/memory-bridge-claude",
+      "description": "Memory Bridge (Claude Code side): flatten project memory into .opencode/from-claude.md on session end",
+      "keywords": ["opencode", "memory", "sync", "interop", "session-end-hook"]
     }
   ]
 }
