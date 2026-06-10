@@ -20,7 +20,7 @@
 ├── hooks/
 │   └── hooks.json         # hook 선언 (또는 plugin.json 안에 인라인)
 └── scripts/
-    └── sync-memory.sh     # 번들 스크립트 (chmod +x)
+    └── memory-bridge.sh     # 번들 스크립트 (chmod +x)
 ```
 
 이 repo 는 marketplace 이자 플러그인 호스트라, CC 플러그인은 하위 폴더(예: `claude-code/`)에 두고 marketplace.json 의 `source` 가 그 경로를 가리키게 한다.
@@ -36,11 +36,11 @@
 우리 용도 예시:
 ```json
 {
-  "name": "claude-to-opencode-sync",
+  "name": "memory-bridge-claude",
   "version": "0.1.0",
   "description": "Flatten Claude Code project memory into OpenCode's instruction file on session end.",
   "author": { "name": "Jet", "email": "gurucat72@gmail.com" },
-  "repository": "https://github.com/Taekyo-Lee/multi-harness-plugins",
+  "repository": "https://github.com/Taekyo-Lee/harness-interop",
   "license": "MIT"
 }
 ```
@@ -60,7 +60,7 @@ literal shape (우리 용도):
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync-memory.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/memory-bridge.sh",
             "timeout": 30
           }
         ]
@@ -78,7 +78,7 @@ literal shape (우리 용도):
 
 ## 4. 경로·환경변수 ✅ (단 plugin 컨텍스트는 ⬜ 눈확인)
 
-- **`${CLAUDE_PLUGIN_ROOT}`** ✅ — 플러그인 설치 루트의 절대경로. 번들 스크립트 호출은 반드시 이걸로. 셸 form 이면 따옴표: `"${CLAUDE_PLUGIN_ROOT}/scripts/sync-memory.sh"`.
+- **`${CLAUDE_PLUGIN_ROOT}`** ✅ — 플러그인 설치 루트의 절대경로. 번들 스크립트 호출은 반드시 이걸로. 셸 form 이면 따옴표: `"${CLAUDE_PLUGIN_ROOT}/scripts/memory-bridge.sh"`.
 - **`$CLAUDE_PROJECT_DIR`** — SessionEnd hook 에서 사용 가능(=유저의 프로젝트 디렉토리). 이게 핵심: 스크립트가 `<project>/.opencode/` 와 memory slug 를 여기서 도출.
   - ⬜ **저자 눈확인**: *플러그인으로 배송된* SessionEnd hook 에서도 `CLAUDE_PROJECT_DIR` 이 (플러그인 루트가 아니라) **유저 프로젝트**를 가리키는지. 어긋나면 stdin 의 `cwd` 로 대체.
 - **stdin JSON** ✅ — SessionEnd 는 stdin 으로 JSON payload 를 줌:
@@ -89,7 +89,7 @@ literal shape (우리 용도):
   `cwd` 가 프로젝트 경로의 신뢰 가능한 fallback. `jq -r '.cwd' < /dev/stdin` 로 읽음.
 - `end_reason` 값 ✅: `clear` / `resume` / `logout` / `prompt_input_exit` / `bypass_permissions_disabled` / `other`.
 
-> 함의: `sync-memory.sh` 의 프로젝트 경로 도출을 `proj="${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd')}"` 식으로 견고하게. (`_reference/hook-sync-research.md` §7a 는 `${CLAUDE_PROJECT_DIR:-$PWD}` 였음 — 플러그인 컨텍스트에선 stdin `cwd` 가 더 안전할 수 있으니 저자 확인 후 확정.)
+> 함의: `memory-bridge.sh` 의 프로젝트 경로 도출을 `proj="${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd')}"` 식으로 견고하게. (`_reference/hook-sync-research.md` §7a 는 `${CLAUDE_PROJECT_DIR:-$PWD}` 였음 — 플러그인 컨텍스트에선 stdin `cwd` 가 더 안전할 수 있으니 저자 확인 후 확정.)
 
 ---
 
@@ -107,11 +107,11 @@ literal shape (우리 용도):
 
 ```json
 {
-  "name": "multi-harness-plugins",
+  "name": "harness-interop",
   "owner": { "name": "Jet" },
   "plugins": [
     {
-      "name": "claude-to-opencode-sync",
+      "name": "memory-bridge-claude",
       "source": "./claude-code",
       "description": "CC -> OpenCode: flatten project memory on session end"
     }
@@ -128,19 +128,19 @@ literal shape (우리 용도):
 
 ```bash
 # 1) marketplace 추가 (1회)
-/plugin marketplace add Taekyo-Lee/multi-harness-plugins
+/plugin marketplace add Taekyo-Lee/harness-interop
 
 # 2) 플러그인 설치
-/plugin install claude-to-opencode-sync@multi-harness-plugins
+/plugin install memory-bridge-claude@harness-interop
 ```
 
 비대화형(CLI):
 ```bash
-claude plugin marketplace add Taekyo-Lee/multi-harness-plugins
-claude plugin install claude-to-opencode-sync@multi-harness-plugins --scope user
+claude plugin marketplace add Taekyo-Lee/harness-interop
+claude plugin install memory-bridge-claude@harness-interop --scope user
 ```
 
-브랜치/태그 고정: `/plugin marketplace add Taekyo-Lee/multi-harness-plugins@v0.1.0`.
+브랜치/태그 고정: `/plugin marketplace add Taekyo-Lee/harness-interop@v0.1.0`.
 
 ---
 
