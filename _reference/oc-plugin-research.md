@@ -29,7 +29,7 @@ Claude Code 와의 차이:
 | `server` | 백엔드 서버 프로세스에서 실행 — event 구독, tool 정의, `Hooks` 콜백 반환 |
 | `tui` | 터미널 UI 에서 실행 — 화면 렌더링·조작 전용 |
 
-우리가 만든 `sync-to-claude.ts` 는 **server kind** 플러그인입니다.
+우리가 만든 `memory-bridge-opencode.ts` 는 **server kind** 플러그인입니다.
 
 ---
 
