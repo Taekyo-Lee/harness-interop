@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # install-oc-plugins.sh — plugins-opencode/ 의 OpenCode 플러그인들을 설치 (파일 복사 방식).
 # OpenCode 는 marketplace 가 없습니다. 다음 위치의 *.ts 를 자동 발견합니다:
-#   global : ~/.config/opencode/plugin/*.ts        (이 머신의 모든 프로젝트)  [기본]
-#   project: <프로젝트>/.opencode/plugin/*.ts
+#   project: <프로젝트>/.opencode/plugin/*.ts              [고정]
+#   global : ~/.config/opencode/plugin/*.ts                [UI 비활성 — 인자로만 강제 가능, 책임은 사용자에게]
+#            (자가 설정형 플러그인이라 global 로 깔면 여는 모든 프로젝트가 수정됨)
 #
 # 사용:
-#   ./install-oc-plugins.sh                                 # 대화형: 체크박스 → 라디오 선택
-#   ./install-oc-plugins.sh global                          # 위치만 지정
-#   ./install-oc-plugins.sh global memory-bridge-opencode   # 완전 비대화형
-# TTY 가 없으면(curl | bash 등) 전체 플러그인을 global 로 설치합니다.
+#   ./install-oc-plugins.sh                                  # 대화형: 체크박스 → 라디오 선택
+#   ./install-oc-plugins.sh project                          # 위치만 지정 (현재 디렉토리 기준)
+#   ./install-oc-plugins.sh project memory-bridge-opencode   # 완전 비대화형
+# TTY 가 없으면(curl | bash 등) 전체 플러그인을 현재 프로젝트(project)에 설치합니다.
 set -euo pipefail
 
 RAW_BASE="https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main"
@@ -19,9 +20,10 @@ PLUGINS_DIR="$SCRIPT_DIR/plugins-opencode"
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   B=$'\033[1m'; D=$'\033[2m'; CY=$'\033[36m'; GR=$'\033[32m'; RD=$'\033[31m'; R=$'\033[0m'
   BN=$'\033[44m\033[97;1m'   # 배너: 파랑 배경 + 밝은 흰 글자
+  ST=$'\033[9m'              # 취소선 (비활성 옵션)
   can_redraw=1
 else
-  B=""; D=""; CY=""; GR=""; RD=""; R=""; BN=""
+  B=""; D=""; CY=""; GR=""; RD=""; R=""; BN=""; ST=""
   can_redraw=""
 fi
 say()  { printf '%b\n' "$*"; }
@@ -128,26 +130,34 @@ if [ -t 0 ] && [ -t 1 ]; then
     done
     show_cursor
   fi
-  # [2/2] 설치 위치 — 라디오 버튼: ↑↓ 이동(커서 = 선택), enter 확정
+  # [2/2] 설치 위치 — project 고정. global 은 제거하지 않고 "비활성"으로 보여줌:
+  # 막혀 있다는 사실과 그 이유 자체가 이 플러그인의 설계 설명이기 때문.
   if [ -z "$scope" ]; then
-    s_names=("global" "project")
-    s_descs=("이 머신의 모든 프로젝트 — ~/.config/opencode/plugin/  ${D}[기본]${R}" \
-             "현재 프로젝트만 — $PWD/.opencode/plugin/")
-    s_subs=("${D}여는 모든 프로젝트에서 플러그인이 동작합니다 (opencode.json 자가 설정 포함)${R}" \
-            "")
+    s_names=("project" "global")
+    s_enabled=("1" "")
+    s_descs=("현재 프로젝트만 — $PWD/.opencode/plugin/  ${GR}[고정]${R}" \
+             "${D}이 머신의 모든 프로젝트 — ~/.config/opencode/plugin/  [비활성]${R}")
+    s_subs=("" \
+            "${D}자가 설정형 플러그인이라 global 로 깔면 여는 ${R}${RD}모든${R}${D} 프로젝트의 opencode.json·.gitignore 가 수정되어 막아두었습니다${R}")
     s_total=2
     s_cur=0
+    s_notice=""
     s_lines=0
 
     draw_scope() {
       [ "$s_lines" -gt 0 ] && printf '\033[%dA\033[0J' "$s_lines"
       local n=0 i=0 mark ptr label
       say ""
-      say "${B}[2/2] 설치 위치${R}  ${D}↑↓ 이동 · enter 확정 · q 취소${R}"
+      say "${B}[2/2] 설치 위치${R}  ${D}프로젝트 단위 동기화가 이 플러그인의 설계 — ${R}${B}project 고정${R}  ${D}enter 확정 · q 취소${R}"
       n=2
       i=0
       while [ "$i" -lt "$s_total" ]; do
-        if [ "$i" -eq "$s_cur" ]; then mark="${GR}(●)${R}"; ptr="${CY}❯${R}"; label="${B}${CY}${s_names[$i]}${R}"; else mark="${D}( )${R}"; ptr=" "; label="${s_names[$i]}"; fi
+        if [ "$i" -eq "$s_cur" ]; then ptr="${CY}❯${R}"; else ptr=" "; fi
+        if [ -n "${s_enabled[$i]}" ]; then
+          if [ "$i" -eq "$s_cur" ]; then mark="${GR}(●)${R}"; label="${B}${CY}${s_names[$i]}${R}"; else mark="( )"; label="${s_names[$i]}"; fi
+        else
+          mark="${D}(✕)${R}"; label="${D}${ST}${s_names[$i]}${R}"
+        fi
         say "  $ptr $mark $label  ${s_descs[$i]}"
         n=$((n + 1))
         if [ -n "${s_subs[$i]}" ]; then
@@ -156,6 +166,11 @@ if [ -t 0 ] && [ -t 1 ]; then
         fi
         i=$((i + 1))
       done
+      if [ -n "$s_notice" ]; then
+        say "  ${RD}$s_notice${R}"
+        n=$((n + 1))
+        s_notice=""
+      fi
       s_lines="$n"
     }
 
@@ -164,7 +179,10 @@ if [ -t 0 ] && [ -t 1 ]; then
       draw_scope
       IFS= read -rsn1 key || true
       case "$key" in
-        "")  scope="${s_names[$s_cur]}"; break ;;
+        "")
+          if [ -n "${s_enabled[$s_cur]}" ]; then scope="${s_names[$s_cur]}"; break; fi
+          s_notice="'${s_names[$s_cur]}' 은(는) 비활성 옵션입니다 — project 로 확정하세요"
+          ;;
         q|Q) die "취소했습니다." ;;
         k)   s_cur=$(( (s_cur - 1 + s_total) % s_total )) ;;
         j)   s_cur=$(( (s_cur + 1) % s_total )) ;;
@@ -187,14 +205,14 @@ if [ -t 0 ] && [ -t 1 ]; then
   fi
 else
   # 비대화형 기본값
-  [ -n "$scope" ] || scope="global"
+  [ -n "$scope" ] || scope="project"
   [ "${#selected[@]}" -gt 0 ] || selected=("${plugins[@]}")
 fi
 
 case "$scope" in
-  global)  DEST="$HOME/.config/opencode/plugin" ;;
   project) DEST="$PWD/.opencode/plugin" ;;
-  *) die "위치는 global|project 중 하나여야 합니다: $scope" ;;
+  global)  DEST="$HOME/.config/opencode/plugin" ;;
+  *) die "위치는 project|global 중 하나여야 합니다: $scope" ;;
 esac
 
 # 중복 제거 (macOS bash 3.2 호환)
