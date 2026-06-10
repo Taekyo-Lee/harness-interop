@@ -143,6 +143,11 @@ export const MemoryBridgeOpenCode: Plugin = async ({ directory }) => {
   await ensureSetup(directory)
   await ensurePersonalMd(directory)
 
+  // Startup catch-up: sync whatever a killed previous session left behind.
+  // Combined with the per-turn sync below, exit mode (/exit, /quit, Ctrl-C,
+  // kill) never matters — the bridge converges on load and on every turn end.
+  await syncToCC(directory)
+
   return {
     event: async ({ event }) => {
       // session.idle fires at turn end (deprecated but still fires).
