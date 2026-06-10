@@ -5,7 +5,7 @@
 #   /plugin install <플러그인>@harness-interop
 #
 # 사용:
-#   ./install-cc-plugins.sh                              # 대화형: ↑↓+space 체크박스 → 설치 범위
+#   ./install-cc-plugins.sh                              # 대화형: 체크박스 → 라디오 선택
 #   ./install-cc-plugins.sh user                         # 범위만 지정, 플러그인은 대화형 선택
 #   ./install-cc-plugins.sh user memory-bridge-claude    # 완전 비대화형 (범위 + 플러그인들)
 # TTY 가 없으면(curl | bash 등) 전체 플러그인을 user 범위로 설치합니다.
@@ -19,9 +19,10 @@ PLUGINS_DIR="$SCRIPT_DIR/plugins-claude"
 # ── 색·커서 제어 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문·재그리기 없음)
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   B=$'\033[1m'; D=$'\033[2m'; CY=$'\033[36m'; GR=$'\033[32m'; RD=$'\033[31m'; R=$'\033[0m'
+  BN=$'\033[44m\033[97;1m'   # 배너: 파랑 배경 + 밝은 흰 글자
   can_redraw=1
 else
-  B=""; D=""; CY=""; GR=""; RD=""; R=""
+  B=""; D=""; CY=""; GR=""; RD=""; R=""; BN=""
   can_redraw=""
 fi
 say()  { printf '%b\n' "$*"; }
@@ -33,7 +34,7 @@ command -v claude >/dev/null 2>&1 \
   || die "'claude' CLI 를 찾을 수 없습니다 — Claude Code 설치 후 다시 실행하세요."
 
 say ""
-say "${B}${CY}harness-interop${R}${B} · Claude Code 플러그인 설치${R}"
+say "${BN}  harness-interop · Claude Code 플러그인 설치  ${R}"
 say "${D}https://github.com/Taekyo-Lee/harness-interop${R}"
 
 # ── 설치 가능한 플러그인 목록: plugins-claude/<이름>/ (폴더명 = 플러그인명 컨벤션)
@@ -51,7 +52,6 @@ scope="${1:-}"
 selected=()
 [ "$#" -ge 2 ] && selected=("${@:2}")
 
-# 대화형 체크박스는 stdin/stdout 모두 TTY 일 때만 (아니면 비대화형 기본값)
 if [ -t 0 ] && [ -t 1 ]; then
   # [1/2] 플러그인 선택 — ↑↓ 이동, space 토글, a 모두, enter 확정, q/ESC 취소
   if [ "${#selected[@]}" -eq 0 ]; then
@@ -107,12 +107,12 @@ if [ -t 0 ] && [ -t 1 ]; then
       done
     }
 
-    [ -n "$can_redraw" ] && printf '\033[?25l'   # 커서 숨김 (EXIT trap 이 복원)
+    [ -n "$can_redraw" ] && printf '\033[?25l'
     while :; do
       draw_menu
       IFS= read -rsn1 key || true
       case "$key" in
-        "")   # enter = 확정
+        "")
           selected=()
           i=0
           for name in "${plugins[@]}"; do
@@ -122,41 +122,77 @@ if [ -t 0 ] && [ -t 1 ]; then
           [ "${#selected[@]}" -gt 0 ] && break
           notice="하나 이상 체크해야 합니다 (space 로 체크)"
           ;;
-        " ")  # space = 현재 항목 토글
+        " ")
           if [ -n "${checked[$cur]}" ]; then checked[$cur]=""; else checked[$cur]="1"; fi
           ;;
         a|A) toggle_all ;;
         q|Q) die "취소했습니다." ;;
         k)   cur=$(( (cur - 1 + total) % total )) ;;
         j)   cur=$(( (cur + 1) % total )) ;;
-        $'\033')  # ESC 시퀀스: 화살표 or 단독 ESC
+        $'\033')
           rest=""
           IFS= read -rsn2 -t 1 rest || true
           case "$rest" in
-            "[A") cur=$(( (cur - 1 + total) % total )) ;;   # ↑
-            "[B") cur=$(( (cur + 1) % total )) ;;           # ↓
-            "")   die "취소했습니다." ;;                      # 단독 ESC
+            "[A") cur=$(( (cur - 1 + total) % total )) ;;
+            "[B") cur=$(( (cur + 1) % total )) ;;
+            "")   die "취소했습니다." ;;
           esac
           ;;
       esac
     done
     show_cursor
   fi
-  # [2/2] 설치 범위 선택 (인자로 받지 않았을 때)
+  # [2/2] 설치 범위 — 라디오 버튼: ↑↓ 이동(커서 = 선택), enter 확정
   if [ -z "$scope" ]; then
-    say ""
-    say "${B}[2/2] 설치 위치${R}  ${D}(현재 프로젝트: $PWD)${R}"
-    say "  ${CY}1)${R} ${B}user${R}     이 머신 전체 — 모든 프로젝트에서 동작  ${D}[기본]${R}"
-    say "  ${CY}2)${R} ${B}project${R}  이 프로젝트에서, 팀과 공유      ${D}.claude/settings.json (commit 대상)${R}"
-    say "  ${CY}3)${R} ${B}local${R}    이 프로젝트에서, 나만           ${D}.claude/settings.local.json (gitignored)${R}"
-    printf '%b' "  선택 ${D}(1/2/3 · 엔터 = 1)${R} ❯ "
-    read -r choice
-    case "${choice:-1}" in
-      1) scope="user" ;;
-      2) scope="project" ;;
-      3) scope="local" ;;
-      *) die "잘못된 선택입니다: $choice" ;;
-    esac
+    s_names=("user" "project" "local")
+    s_descs=("이 머신 전체 — 모든 프로젝트에서 동작  ${D}[기본]${R}" \
+             "이 프로젝트에서, 팀과 공유 — ${D}.claude/settings.json (commit 대상)${R}" \
+             "이 프로젝트에서, 나만 — ${D}.claude/settings.local.json (gitignored)${R}")
+    s_total=3
+    s_cur=0
+    s_lines=0
+
+    draw_scope() {
+      [ "$s_lines" -gt 0 ] && printf '\033[%dA\033[0J' "$s_lines"
+      local n=0 i=0 mark ptr label
+      say ""
+      say "${B}[2/2] 설치 위치${R}  ${D}(현재 프로젝트: $PWD) · ↑↓ 이동 · enter 확정 · q 취소${R}"
+      n=2
+      i=0
+      while [ "$i" -lt "$s_total" ]; do
+        if [ "$i" -eq "$s_cur" ]; then mark="${GR}(●)${R}"; ptr="${CY}❯${R}"; label="${B}${CY}${s_names[$i]}${R}"; else mark="${D}( )${R}"; ptr=" "; label="${s_names[$i]}"; fi
+        say "  $ptr $mark $label  ${s_descs[$i]}"
+        n=$((n + 1))
+        i=$((i + 1))
+      done
+      s_lines="$n"
+    }
+
+    [ -n "$can_redraw" ] && printf '\033[?25l'
+    while :; do
+      draw_scope
+      IFS= read -rsn1 key || true
+      case "$key" in
+        "")  scope="${s_names[$s_cur]}"; break ;;
+        q|Q) die "취소했습니다." ;;
+        k)   s_cur=$(( (s_cur - 1 + s_total) % s_total )) ;;
+        j)   s_cur=$(( (s_cur + 1) % s_total )) ;;
+        [1-9])
+          idx=$(( key - 1 ))
+          [ "$idx" -lt "$s_total" ] && s_cur="$idx"
+          ;;
+        $'\033')
+          rest=""
+          IFS= read -rsn2 -t 1 rest || true
+          case "$rest" in
+            "[A") s_cur=$(( (s_cur - 1 + s_total) % s_total )) ;;
+            "[B") s_cur=$(( (s_cur + 1) % s_total )) ;;
+            "")   die "취소했습니다." ;;
+          esac
+          ;;
+      esac
+    done
+    show_cursor
   fi
 else
   # 비대화형 기본값
