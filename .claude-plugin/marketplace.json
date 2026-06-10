@@ -1,0 +1,11 @@
+{
+  "name": "multi-harness-plugins",
+  "owner": { "name": "Jet" },
+  "plugins": [
+    {
+      "name": "memory-bridge-claude",
+      "source": "./claude-code",
+      "description": "Memory Bridge (Claude Code side): flatten project memory into .opencode/from-claude.md on session end"
+    }
+  ]
+}
