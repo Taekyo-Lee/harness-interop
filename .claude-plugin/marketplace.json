@@ -1,5 +1,5 @@
 {
-  "name": "multi-harness-plugins",
+  "name": "harness-interop",
   "owner": { "name": "Jet" },
   "plugins": [
     {
