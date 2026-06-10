@@ -34,6 +34,5 @@ node_modules/
 
 # ── 비밀값 방어선 (public repo 보험)
 .env
-.env.*
 *.pem
 *.key
