@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# plugins-opencode/install.sh — 이 폴더의 OpenCode 플러그인들을 설치 (파일 복사 방식).
-# OpenCode 는 marketplace 가 없습니다. 다음 위치의 *.ts 를 자동 발견합니다:
-#   project: <프로젝트>/.opencode/plugin/*.ts              [고정]
-#   global : ~/.config/opencode/plugin/*.ts                [UI 비활성 — 인자로만 강제 가능, 책임은 사용자에게]
-#            (자가 설정형 플러그인이라 global 로 깔면 여는 모든 프로젝트가 수정됨)
+# plugins-claude/install.sh — 이 폴더의 Claude Code 플러그인들을 터미널에서 설치.
+# Claude Code REPL 의 다음 명령들과 동일합니다:
+#   /plugin marketplace add Taekyo-Lee/harness-interop
+#   /plugin install <플러그인>@harness-interop
 #
-# 사용 (동기화할 프로젝트 루트에서):
-#   bash plugins-opencode/install.sh                              # 대화형: 체크박스 → 위치 확정(project 고정)
-#   bash plugins-opencode/install.sh project                      # 위치만 지정 (현재 디렉토리 기준)
-#   bash plugins-opencode/install.sh project memory-bridge-opencode  # 완전 비대화형
-#   bash <(curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/install.sh)
-# TTY 가 없으면(curl | bash 등) 전체 플러그인을 현재 프로젝트(project)에 설치합니다.
+# 사용:
+#   bash plugins-claude/install.sh                            # 대화형: 체크박스 → 위치 확정(local 고정)
+#   bash plugins-claude/install.sh local                      # 범위만 지정, 플러그인은 대화형 선택
+#   bash plugins-claude/install.sh local memory-bridge-claude # 완전 비대화형 (범위 + 플러그인들)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-claude/install.sh)
+# TTY 가 없으면(curl | bash 등) 전체 플러그인을 local 범위로 설치합니다.
+# (개인 지침은 누구와도 공유하지 않는 게 철학 — UI 에선 local 고정이며 user/project 는
+#  비활성으로 표시됩니다. 정말 필요하면 인자로만 강제 가능: 책임은 사용자에게.)
 set -euo pipefail
 
-RAW_BASE="https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main"
+MARKETPLACE_REPO="Taekyo-Lee/harness-interop"
+MARKETPLACE_NAME="harness-interop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGINS_DIR="$SCRIPT_DIR"   # 이 스크립트는 plugins-opencode/ 안에 살고, 형제 폴더들이 곧 플러그인
+PLUGINS_DIR="$SCRIPT_DIR"   # 이 스크립트는 plugins-claude/ 안에 살고, 형제 폴더들이 곧 플러그인
 
 # ── 색·커서 제어 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문·재그리기 없음)
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -32,24 +34,24 @@ die()  { say "${RD}✗ $*${R}" >&2; exit 1; }
 show_cursor() { [ -n "$can_redraw" ] && printf '\033[?25h' || true; }
 trap show_cursor EXIT
 
+command -v claude >/dev/null 2>&1 \
+  || die "'claude' CLI 를 찾을 수 없습니다 — Claude Code 설치 후 다시 실행하세요."
+
 say ""
-say "${BN}  harness-interop · OpenCode 플러그인 설치  ${R}"
+say "${BN}  harness-interop · Claude Code 플러그인 설치  ${R}"
 say "${D}https://github.com/Taekyo-Lee/harness-interop${R}"
 
-# ── 설치 가능한 플러그인 목록: plugins-opencode/<이름>/plugin/*.ts
+# ── 설치 가능한 플러그인 목록: plugins-claude/<이름>/ (폴더명 = 플러그인명 컨벤션)
 plugins=()
 if [ -d "$PLUGINS_DIR" ]; then
-  for dir in "$PLUGINS_DIR"/*/; do
-    name="$(basename "$dir")"
-    for ts in "$dir"plugin/*.ts; do
-      [ -f "$ts" ] && { plugins+=("$name"); break; }
-    done
+  for d in "$PLUGINS_DIR"/*/; do
+    [ -f "$d/.claude-plugin/plugin.json" ] && plugins+=("$(basename "$d")")
   done
 fi
-# repo 밖 단독 실행(스크립트만 받은 경우) 대비 기본 목록 — curl 로 받아옴
-[ "${#plugins[@]}" -gt 0 ] || plugins=("memory-bridge-opencode")
+# repo 밖 단독 실행(스크립트만 받은 경우) 대비 기본 목록
+[ "${#plugins[@]}" -gt 0 ] || plugins=("memory-bridge-claude")
 
-# ── 인자: $1 = 위치(global|project), $2.. = 플러그인 이름 (모두 선택사항)
+# ── 인자: $1 = scope, $2.. = 플러그인 이름 (모두 선택사항)
 scope="${1:-}"
 selected=()
 [ "$#" -ge 2 ] && selected=("${@:2}")
@@ -57,6 +59,15 @@ selected=()
 if [ -t 0 ] && [ -t 1 ]; then
   # [1/2] 플러그인 선택 — ↑↓ 이동, space 토글, a 모두, enter 확정, q/ESC 취소
   if [ "${#selected[@]}" -eq 0 ]; then
+    descs=()
+    for name in "${plugins[@]}"; do
+      d_=""
+      pj="$PLUGINS_DIR/$name/.claude-plugin/plugin.json"
+      if command -v jq >/dev/null 2>&1 && [ -f "$pj" ]; then
+        d_="$(jq -r '.description // ""' "$pj" 2>/dev/null || true)"
+      fi
+      descs+=("$d_")
+    done
     checked=()
     for _ in "${plugins[@]}"; do checked+=("1"); done   # 기본: 전부 체크
     total="${#plugins[@]}"
@@ -76,6 +87,10 @@ if [ -t 0 ] && [ -t 1 ]; then
         if [ "$i" -eq "$cur" ]; then ptr="${CY}❯${R}"; label="${B}${CY}$name${R}"; else ptr=" "; label="$name"; fi
         say "  $ptr $box $label"
         n=$((n + 1))
+        if [ -n "${descs[$i]}" ]; then
+          say "          ${D}${descs[$i]}${R}"
+          n=$((n + 1))
+        fi
         i=$((i + 1))
       done
       if [ -n "$notice" ]; then
@@ -131,17 +146,19 @@ if [ -t 0 ] && [ -t 1 ]; then
     done
     show_cursor
   fi
-  # [2/2] 설치 위치 — project 고정. global 은 제거하지 않고 "비활성"으로 보여줌:
-  # 막혀 있다는 사실과 그 이유 자체가 이 플러그인의 설계 설명이기 때문.
+  # [2/2] 설치 범위 — local 고정. user/project 는 제거하지 않고 "비활성"으로 보여줌:
+  # 개인 지침은 누구와도 공유하지 않는다는 철학을 화면 자체가 설명하도록.
   if [ -z "$scope" ]; then
-    s_names=("project" "global")
-    s_enabled=("1" "")
-    s_descs=("현재 프로젝트만 — $PWD/.opencode/plugin/  ${GR}[고정]${R}" \
-             "${D}이 머신의 모든 프로젝트 — ~/.config/opencode/plugin/  [비활성]${R}")
-    s_subs=("" \
-            "${D}자가 설정형 플러그인이라 global 로 깔면 여는 ${R}${RD}모든${R}${D} 프로젝트의 opencode.json·.gitignore 가 수정되어 막아두었습니다${R}")
-    s_total=2
-    s_cur=0
+    s_names=("user" "project" "local")
+    s_enabled=("" "" "1")
+    s_descs=("${D}이 머신 전체 — 모든 프로젝트에서 동작  [비활성]${R}" \
+             "${D}이 프로젝트에서, 팀과 공유 — .claude/settings.json  [비활성]${R}" \
+             "이 프로젝트에서, 나만 — ${D}.claude/settings.local.json (gitignored)${R}  ${GR}[고정]${R}")
+    s_subs=("${D}프로젝트 단위 개인 지침이라는 설계와 어긋나 막아두었습니다${R}" \
+            "${D}settings.json 은 commit 되어 팀과 공유됩니다 — 개인 지침은 공유하지 않는 게 철학${R}" \
+            "")
+    s_total=3
+    s_cur=2
     s_notice=""
     s_lines=0
 
@@ -149,7 +166,7 @@ if [ -t 0 ] && [ -t 1 ]; then
       [ "$s_lines" -gt 0 ] && printf '\033[%dA\033[0J' "$s_lines"
       local n=0 i=0 mark ptr label
       say ""
-      say "${B}[2/2] 설치 위치${R}  ${D}프로젝트 단위 동기화가 이 플러그인의 설계 — ${R}${B}project 고정${R}  ${D}enter 확정 · q 취소${R}"
+      say "${B}[2/2] 설치 위치${R}  ${D}개인 지침은 공유하지 않습니다 — ${R}${B}local 고정${R}  ${D}(현재 프로젝트: $PWD) · enter 확정 · q 취소${R}"
       n=2
       i=0
       while [ "$i" -lt "$s_total" ]; do
@@ -182,7 +199,7 @@ if [ -t 0 ] && [ -t 1 ]; then
       case "$key" in
         "")
           if [ -n "${s_enabled[$s_cur]}" ]; then scope="${s_names[$s_cur]}"; break; fi
-          s_notice="'${s_names[$s_cur]}' 은(는) 비활성 옵션입니다 — project 로 확정하세요"
+          s_notice="'${s_names[$s_cur]}' 은(는) 비활성 옵션입니다 — local 로 확정하세요"
           ;;
         q|Q) die "취소했습니다." ;;
         k)   s_cur=$(( (s_cur - 1 + s_total) % s_total )) ;;
@@ -205,18 +222,17 @@ if [ -t 0 ] && [ -t 1 ]; then
     show_cursor
   fi
 else
-  # 비대화형 기본값
-  [ -n "$scope" ] || scope="project"
+  # 비대화형 기본값 (철학 기본: local)
+  [ -n "$scope" ] || scope="local"
   [ "${#selected[@]}" -gt 0 ] || selected=("${plugins[@]}")
 fi
 
 case "$scope" in
-  project) DEST="$PWD/.opencode/plugin" ;;
-  global)  DEST="$HOME/.config/opencode/plugin" ;;
-  *) die "위치는 project|global 중 하나여야 합니다: $scope" ;;
+  user|project|local) ;;
+  *) die "scope 는 user|project|local 중 하나여야 합니다: $scope" ;;
 esac
 
-# 중복 제거 (macOS bash 3.2 호환)
+# 중복 제거 (macOS bash 3.2 호환 — mapfile 미사용)
 deduped=()
 for p in "${selected[@]}"; do
   dup=""
@@ -227,50 +243,32 @@ for p in "${selected[@]}"; do
 done
 selected=("${deduped[@]}")
 
-# ── 설치 = 파일 복사 (repo 사본 우선, 없으면 GitHub raw 에서 다운로드)
+# ── 실행 (claude CLI 의 상세 출력은 캡처해 두고, 실패할 때만 보여줌)
 say ""
-mkdir -p "$DEST"
+say "${D}→ marketplace 준비 중 (harness-interop)…${R}"
+if out_add="$(claude plugin marketplace add "$MARKETPLACE_REPO" 2>&1)"; then
+  say "${GR}✓${R} marketplace 등록됨"
+elif out_upd="$(claude plugin marketplace update "$MARKETPLACE_NAME" 2>&1)"; then
+  say "${GR}✓${R} marketplace 갱신됨 ${D}(이미 등록되어 있음)${R}"
+else
+  say "${RD}✗${R} marketplace 준비 실패 — claude 출력:" >&2
+  printf '%s\n' "$out_add" "${out_upd:-}" | sed 's/^/    /' >&2
+  exit 1
+fi
+
 fail_n=0
-for name in "${selected[@]}"; do
-  say "${D}→ $name 설치 중…${R}"
-  src_dir="$PLUGINS_DIR/$name/plugin"
-  installed=""
-  # 1) repo 사본 우선 (clone 받아 실행한 경우 — push 없이도 현재 트리 기준으로 설치)
-  if [ -d "$src_dir" ]; then
-    for ts in "$src_dir"/*.ts; do
-      [ -f "$ts" ] || continue
-      base="$(basename "$ts")"
-      verb="설치됨"; [ -f "$DEST/$base" ] && verb="갱신됨"
-      cp "$ts" "$DEST/$base"
-      say "${GR}✓${R} ${B}$name${R}/$base $verb ${D}→ $DEST/${R}"
-      installed=1
-    done
-  fi
-  # 2) repo 사본이 없거나 비어 있으면 GitHub raw 다운로드 (임시파일 경유 — 실패해도 기존 파일 보존)
-  if [ -z "$installed" ]; then
-    url="$RAW_BASE/plugins-opencode/$name/plugin/$name.ts"
-    tmp="$DEST/.$name.ts.download"
-    verb="설치됨"; [ -f "$DEST/$name.ts" ] && verb="갱신됨"
-    if curl -fsSL "$url" -o "$tmp" 2>/dev/null; then
-      mv "$tmp" "$DEST/$name.ts"
-      say "${GR}✓${R} ${B}$name${R}.ts $verb ${D}(GitHub raw) → $DEST/${R}"
-      installed=1
-    else
-      rm -f "$tmp"
-    fi
-  fi
-  if [ -z "$installed" ]; then
-    say "${RD}✗${R} $name — repo 에 plugin/*.ts 가 없고, GitHub raw 다운로드도 실패 ${D}($url)${R}" >&2
+for p in "${selected[@]}"; do
+  say "${D}→ $p 설치 중…${R}"
+  if out="$(claude plugin install "$p@$MARKETPLACE_NAME" --scope "$scope" 2>&1)"; then
+    say "${GR}✓${R} ${B}$p${R} ${D}(scope: $scope)${R}"
+  else
+    say "${RD}✗${R} $p 설치 실패 — claude 출력:" >&2
+    printf '%s\n' "$out" | sed 's/^/    /' >&2
     fail_n=$((fail_n + 1))
   fi
 done
 
 say ""
 [ "$fail_n" -eq 0 ] || die "${fail_n}개 플러그인 설치 실패"
-if [ "$scope" = "project" ]; then
-  say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}($DEST)${R}"
-  say "${D}이 프로젝트에서 OpenCode 를 열면 플러그인이 자가 설정(opencode.json instructions + .gitignore)을 수행합니다.${R}"
-else
-  say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}($DEST)${R}"
-  say "${D}이제 이 머신에서 여는 모든 프로젝트에 플러그인이 로드됩니다 (프로젝트별 자가 설정은 처음 열 때 수행).${R}"
-fi
+say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}(scope: $scope)${R}"
+say "${D}다음 Claude Code 세션을 종료(SessionEnd)하면 <project>/.opencode/from-claude.md 가 생성됩니다.${R}"
