@@ -83,33 +83,52 @@ print(f'[probe] 결론: {"RAW_OK — 한 줄 설치 유지" if raw_ok else "RAW_
 
 changed = []
 
-def sub_lines(path, key, new):
+def sub_lines(path, key, new, label):
     p = pathlib.Path(path)
     if not p.exists():
         return
     lines = p.read_text(encoding='utf-8').split('\n')
-    hits = [i for i, l in enumerate(lines) if key in l]
+    hits = [i for i, l in enumerate(lines) if key in l and l != new]
     if not hits:
         return
     for i in hits:
         lines[i] = new
     p.write_text('\n'.join(lines), encoding='utf-8')
     changed.append(path)
-    print(f'[sweep] {path} :: 설치 줄 {len(hits)}개 → clone 형태')
+    print(f'[sweep] {path} :: {label} {len(hits)}줄')
 
-# RAW_BLOCKED 일 때만: 한 줄 설치 명령들을 clone 형태로 통째 교체
-# (치환 결과는 의도적으로 하드코딩 — upstream 이 셀 문구를 바꾸면 여기를 갱신)
+# RAW_BLOCKED 일 때만: 한 줄 설치 명령들을 clone 형태로 통째 교체.
+# 핵심: 설치 명령은 "플러그인을 쓸 프로젝트 폴더"에서 실행되므로 (CC local scope =
+# cwd, OC .opencode/ = cwd), clone 은 반드시 /tmp 로 — 프로젝트 안에 repo 가
+# 증식하면 안 된다. (치환 결과는 의도적 하드코딩 — upstream 셀 문구가 바뀌면 갱신)
 if not raw_ok:
-    clone_cc = f'git clone {mir_web}.git && bash {mr}/plugins-claude/install.sh'
-    clone_oc = f'git clone {mir_web}.git && bash {mr}/plugins-opencode/install.sh'
-    sub_lines('README.md', f'{src_raw}/plugins-claude/install.sh',
-              f'| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) | Claude Code | `{clone_cc}` (대화형 설치) |')
-    sub_lines('README.md', f'{src_raw}/plugins-opencode/install.sh',
-              f'| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) | OpenCode | `{clone_oc}` (대화형 설치) |')
-    sub_lines('plugins-claude/install.sh', f'{src_raw}/plugins-claude/install.sh', f'#   {clone_cc}')
-    sub_lines('plugins-opencode/install.sh', f'{src_raw}/plugins-opencode/install.sh', f'#   {clone_oc}')
-    sub_lines('plugins-claude/memory-bridge-claude/README.md', f'{src_raw}/plugins-claude/install.sh', clone_cc)
-    sub_lines('plugins-opencode/memory-bridge-opencode/README.md', f'{src_raw}/plugins-opencode/install.sh', clone_oc)
+    tmp = f'/tmp/{mr}'
+    clone_cc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-claude/install.sh'
+    clone_oc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-opencode/install.sh'
+    # 옛 템플릿 (프로젝트 폴더 안에 clone 을 남기던 결함) — 이미 회사화된 트리의 마이그레이션 키
+    old_cc = f'git clone {mir_web}.git && bash {mr}/plugins-claude/install.sh'
+    old_oc = f'git clone {mir_web}.git && bash {mr}/plugins-opencode/install.sh'
+    row_cc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) '
+              f'| Claude Code | `{clone_cc}` (플러그인 쓸 프로젝트 폴더에서 실행 · 대화형) |')
+    row_oc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) '
+              f'| OpenCode | `{clone_oc}` (플러그인 쓸 프로젝트 폴더에서 실행 · 대화형) |')
+
+    for key in (f'{src_raw}/plugins-claude/install.sh', old_cc):
+        sub_lines('README.md', key, row_cc, '카탈로그 행(claude) → /tmp clone 형태')
+        sub_lines('plugins-claude/install.sh', key, f'#   {clone_cc}', '헤더 주석 → /tmp clone 형태')
+        sub_lines('plugins-claude/memory-bridge-claude/README.md', key, clone_cc, '설치 명령 → /tmp clone 형태')
+    for key in (f'{src_raw}/plugins-opencode/install.sh', old_oc):
+        sub_lines('README.md', key, row_oc, '카탈로그 행(opencode) → /tmp clone 형태')
+        sub_lines('plugins-opencode/install.sh', key, f'#   {clone_oc}', '헤더 주석 → /tmp clone 형태')
+        sub_lines('plugins-opencode/memory-bridge-opencode/README.md', key, clone_oc, '설치 명령 → /tmp clone 형태')
+
+    # 설치 안내 산문 — "clone 불필요" 가 clone 명령과 모순되지 않게
+    sub_lines('plugins-claude/memory-bridge-claude/README.md', 'clone 불필요',
+              '터미널 한 줄 (`/tmp` 에 임시 clone 후 실행 — **플러그인을 쓸 프로젝트 폴더에서** 실행하세요, 대화형 UI):',
+              '안내 문구')
+    sub_lines('plugins-opencode/memory-bridge-opencode/README.md', 'clone 불필요',
+              '동기화할 프로젝트 루트에서 한 줄 (`/tmp` 에 임시 clone 후 실행, 대화형 UI):',
+              '안내 문구')
 
 # ── 부분문자열 치환 (전 tracked 파일, 멱등) ──
 mir_raw_hostpath = re.sub(r'^https://', '', mir_raw_base)
