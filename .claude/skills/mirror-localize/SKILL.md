@@ -102,6 +102,18 @@ fragment) over a multi-line cell. If an edit reports "string not found",
 re-Read and retry with the exact bytes; after two failures on the same file,
 stop patching and rewrite the whole file with the localized content.
 
+**Known corruption signature (company site, observed 2026-06-11)** — tool
+parameters containing `<` can arrive with the `<`-token doubled
+(`<br>` → `<<brbr>`, `<(` → `<<((`, `<div` → `<<divdiv`), even when the
+old-string was built from a fresh Read, and identically on retry. Discipline
+cannot fix transport: on this signature, stop using Edit/Write for any
+`<`-bearing content (Write can corrupt *silently* — the doubled bytes land in
+the file). Make the change through Bash instead — `sed`/`python` keyed on a
+`<`-free substring of the target line (the public raw URL is ideal), with
+replacement text designed to contain no `<` (the clone install form and the
+blockquote mirror notice need none) — then verify the written bytes with
+`grep` before moving on.
+
 Known surfaces and their rewrites:
 
 1. **README install commands** (root catalog ⚡ cells + each plugin README):
@@ -129,13 +141,15 @@ Known surfaces and their rewrites:
 5. **plugin.json `repository` fields** → `MIRROR_WEB`.
 6. **verify-release.sh raw-URL watch pattern** (§5c) → the mirror's raw URL
    prefix, so the release gate keeps watching the mirror's own links.
-7. **Mirror notice** at the top of the root README — insert only if the
-   marker is absent (idempotency guard):
-   ```markdown
-   > <!-- mirror-of: https://github.com/SRC_OWNER/SRC_REPO -->
-   > 🔁 이 repo 는 [public 원본](https://github.com/SRC_OWNER/SRC_REPO)의
-   > 사내 미러입니다. 변경·이슈는 원본에서; 갱신은 `/merge-upstream` →
-   > `/mirror-localize` 로 이뤄집니다.
+7. **Mirror notice** at the top of the root README — one blockquote line,
+   deliberately `<`-free (no HTML comment — corruption bait, see Edit
+   discipline). Insert only if the `mirror-of:` marker is absent (idempotency
+   guard), and prepend via Bash, not Edit — the file starts with an HTML
+   `<div>`, a corruptible anchor:
+   ```bash
+   grep -q 'mirror-of:' README.md || { printf '%s\n\n' \
+     '> 🔁 **사내 미러** (mirror-of: https://github.com/SRC_OWNER/SRC_REPO) — 변경·이슈는 public 원본에서; 갱신은 `/merge-upstream` → `/mirror-localize`.' \
+     | cat - README.md > README.md.new && mv README.md.new README.md; }
    ```
 
 ## Leftover Gate — must pass before committing
@@ -148,7 +162,10 @@ Every remaining hit must be one of:
 
 - the mirror-notice block (`mirror-of:` marker and its blockquote), or
 - a file under `.claude/skills/` (the workflow docs legitimately name the
-  source).
+  source), or
+- `.env.example` — its `REMOTE_REPO=` line names the public source by design:
+  that variable is the upstream pointer `merge-upstream` falls back to.
+  Localizing it would point the mirror's upstream at itself.
 
 Anything else means the sweep missed a spot — fix it and re-run the gate
 until it is clean. **The gate is the definition of done.** A run with
