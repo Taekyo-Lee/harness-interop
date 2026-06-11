@@ -30,7 +30,8 @@ for p in \
   README.md \
   .claude/skills/merge-upstream/SKILL.md \
   .claude/skills/merge-upstream/SKILL.local.md \
-  .claude/skills/mirror-localize/SKILL.md
+  .claude/skills/mirror-localize/SKILL.md \
+  .claude/skills/mirror-localize/localize.sh
 do
   if has "$p"; then ok "$p"; else bad "누락: $p"; fi
 done
