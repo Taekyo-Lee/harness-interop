@@ -94,6 +94,14 @@ the source of truth (newly merged upstream content shows up here too):
 git grep -n "SRC_OWNER/SRC_REPO"
 ```
 
+**Edit discipline** — READMEs are full of fragile characters (`<br>`, `<(`,
+backticks, pipes): always `Read` the file first and build every edit's
+old-string **verbatim from the Read output**, never from memory or your own
+re-rendering of the file. Prefer replacing one whole line (or a small unique
+fragment) over a multi-line cell. If an edit reports "string not found",
+re-Read and retry with the exact bytes; after two failures on the same file,
+stop patching and rewrite the whole file with the localized content.
+
 Known surfaces and their rewrites:
 
 1. **README install commands** (root catalog ⚡ cells + each plugin README):
@@ -142,7 +150,12 @@ Every remaining hit must be one of:
 - a file under `.claude/skills/` (the workflow docs legitimately name the
   source).
 
-Anything else means the sweep missed a spot — fix it and re-run the gate.
+Anything else means the sweep missed a spot — fix it and re-run the gate
+until it is clean. **The gate is the definition of done.** A run with
+unexplained leftovers has FAILED: do not commit, do not push, and never
+report success "because the core files were done" — partial localization
+(install docs silently pointing colleagues at the public repo) is precisely
+the bug this skill exists to prevent.
 
 ## Commit (no push)
 
