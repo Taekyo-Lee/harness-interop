@@ -19,176 +19,70 @@ description: >
 
 After this repo is mirrored to an internal git host, every self-reference in
 the tree still points at the public source (github.com /
-raw.githubusercontent.com). Installs that *look* like they come from the
-mirror would actually pull from the public repo — or simply fail on a closed
-network. This skill rewrites all self-references to the mirror's own address,
-**derived from `git remote get-url origin`, never hand-typed**, and proves
-completion with a leftover gate.
-
-Design properties:
-
-- **Idempotent** — on an already-localized tree it is a no-op. This is why it
-  can run after *every* merge: git merge only mediates conflicts, so brand-new
-  upstream files/lines arrive un-localized, and this sweep catches them.
-- **Self-correcting probe** — raw-URL reachability is tested against the real
-  origin/branch, so the README install form (one-liner vs clone) adapts to the
-  instance automatically. No human has to remember the instance's policy.
-
-## Environment Guard — `A2G_LOCATION`
-
-Same gate as `merge-upstream`. **Before anything else**:
+raw.githubusercontent.com). This skill localizes them to the mirror's own
+address — but **all byte-level work lives in the tracked script next to this
+file**, not in model-composed edits. Running the skill means running exactly
+one command:
 
 ```bash
-grep -E '^A2G_LOCATION=' .env
+bash .claude/skills/mirror-localize/localize.sh
 ```
 
-- `COMPANY`, `CORP`, or `PRODUCTION` → proceed.
-- Anything else, line missing, or no `.env` → **stop immediately** and tell
-  the user: this machine likely holds the public source; localizing it would
-  corrupt the public repo's self-references.
+## Why a script, not hand edits
 
-## Identity Resolution (never hand-type URLs)
+The company transport corrupts `<`-bearing tool parameters
+(`<br>` → `<<brbr>`, `<(` → `<<((`, `<div` → `<<divdiv` — observed
+2026-06-11, identically on retry and even with old-strings built from a
+fresh Read). READMEs are full of `<`, so Edit/Write payloads cannot be
+trusted there — Edit fails loudly, Write can corrupt *silently*. The
+script's bytes travel via git instead, and the one command above contains
+no `<` at all. **Never patch the target files by hand, not even to "help"
+after a failure** — hand edits are exactly what the corruption breaks.
 
-```bash
-git remote get-url origin                                  # → MIRROR
-git remote get-url upstream 2>/dev/null \
-  || grep -E '^REMOTE_REPO=' .env                          # → SOURCE
-git branch --show-current                                  # → BRANCH
-```
+## What the script does (in order)
 
-- **MIRROR**: strip a trailing `.git`; parse `HOST`, `OWNER`, `REPO`.
-  Define `MIRROR_WEB = https://HOST/OWNER/REPO` (also what
-  `claude plugin marketplace add` accepts as a git URL).
-- **SOURCE**: parse the same way → `SRC_OWNER`, `SRC_REPO`. If neither an
-  `upstream` remote nor `REMOTE_REPO` in `.env` exists, stop and ask the user
-  for the public source URL.
-- **Sanity**: if MIRROR and SOURCE name the same repo → stop ("this clone IS
-  the source — nothing to localize").
+1. **Gate**: requires `A2G_LOCATION` ∈ {COMPANY, CORP, PRODUCTION} in
+   `.env`; otherwise aborts (HOME/DEVELOPMENT hold the public source).
+2. **Identity**: MIRROR from `git remote get-url origin`; SOURCE from the
+   `upstream` remote or `REMOTE_REPO` in `.env` — never hand-typed. Aborts
+   if this clone IS the source.
+3. **Probe**: tries 3 anonymous raw-URL shapes against the mirror; all
+   non-200 → clone-form install commands (enterprise instances typically
+   mask anonymous access as 404).
+4. **Sweep** (idempotent): README catalog rows, install.sh header comments,
+   `MARKETPLACE_REPO`, `RAW_BASE`, banner URLs, plugin.json `repository`,
+   plugin README install lines, the verify-release raw-URL watch pattern.
+   Replacement strings are deliberately hardcoded in the script.
+5. **Mirror notice**: one `<`-free blockquote line prepended to the root
+   README (`mirror-of:` marker = idempotency guard; it keeps pointing at
+   the public source by design).
+6. **Leftover gate**: `git grep` for the source `OWNER/REPO`. Allowed
+   leftovers are ONLY the mirror notice, `.claude/skills/`, and
+   `.env.example` (its `REMOTE_REPO=` line IS the upstream pointer —
+   localizing it would point the mirror's upstream at itself). Anything
+   else → exit 1, nothing committed.
+7. **Commit → `bash verify-release.sh HEAD` → push**. (`--no-push` skips
+   the final push, e.g. for tests.)
 
-## Raw Reachability Probe
+Because the sweep is idempotent, the script is safe to run after *every*
+merge: git merge only mediates conflicts, so brand-new upstream files/lines
+arrive un-localized, and the sweep catches them; an already-localized tree
+is a no-op.
 
-Anonymous `curl` decides which install form the mirror's READMEs may offer.
-Try in order; the first 200 wins (remember that URL shape as `RAW_OK`):
+## Your job as the model
 
-```bash
-curl -sS -o /dev/null -w '%{http_code}\n' -L --max-time 10 "https://HOST/OWNER/REPO/raw/BRANCH/README.md"
-curl -sS -o /dev/null -w '%{http_code}\n' -L --max-time 10 "https://HOST/raw/OWNER/REPO/BRANCH/README.md"
-curl -sS -o /dev/null -w '%{http_code}\n' -L --max-time 10 "https://raw.HOST/OWNER/REPO/BRANCH/README.md"
-```
+1. Run the one command above. Do not re-implement any of its steps.
+2. Relay the tail of its output to the user: the probe conclusion, the
+   leftover-gate result, the verify result, and the final `DONE` line.
+3. If it exits non-zero, show the full output and stop. **The gate is the
+   definition of done** — a run that ends with unexplained leftovers or a
+   failed verify has FAILED, even if "most files were done".
 
-All non-200 → **RAW_BLOCKED**. (Typical for enterprise instances: anonymous
-requests get masked 404s even on "Public" repos.) Install commands must then
-use the clone form — a clone authenticates through the colleague's existing
-git credentials, and it keeps the TTY, so the interactive installer UI works.
+## When this runs
 
-## Rewrite Sweep (idempotent)
-
-A *self-reference* is any URL or shorthand naming `SRC_OWNER/SRC_REPO`.
-Author profile links **without** the repo (e.g. `github.com/SRC_OWNER` alone)
-are authorship, NOT self-references — leave them untouched.
-
-Find every occurrence mechanically first — this grep, not the list below, is
-the source of truth (newly merged upstream content shows up here too):
-
-```bash
-git grep -n "SRC_OWNER/SRC_REPO"
-```
-
-**Edit discipline** — READMEs are full of fragile characters (`<br>`, `<(`,
-backticks, pipes): always `Read` the file first and build every edit's
-old-string **verbatim from the Read output**, never from memory or your own
-re-rendering of the file. Prefer replacing one whole line (or a small unique
-fragment) over a multi-line cell. If an edit reports "string not found",
-re-Read and retry with the exact bytes; after two failures on the same file,
-stop patching and rewrite the whole file with the localized content.
-
-**Known corruption signature (company site, observed 2026-06-11)** — tool
-parameters containing `<` can arrive with the `<`-token doubled
-(`<br>` → `<<brbr>`, `<(` → `<<((`, `<div` → `<<divdiv`), even when the
-old-string was built from a fresh Read, and identically on retry. Discipline
-cannot fix transport: on this signature, stop using Edit/Write for any
-`<`-bearing content (Write can corrupt *silently* — the doubled bytes land in
-the file). Make the change through Bash instead — `sed`/`python` keyed on a
-`<`-free substring of the target line (the public raw URL is ideal), with
-replacement text designed to contain no `<` (the clone install form and the
-blockquote mirror notice need none) — then verify the written bytes with
-`grep` before moving on.
-
-Known surfaces and their rewrites:
-
-1. **README install commands** (root catalog ⚡ cells + each plugin README):
-   - `RAW_OK` → keep the one-liner forms, substituting the working raw URL
-     shape.
-   - `RAW_BLOCKED` → replace each install cell/section with the clone form
-     (one command; it is interactive by itself, so no second variant needed):
-     ```bash
-     git clone MIRROR_WEB && bash REPO/plugins-claude/install.sh
-     ```
-     Also replace raw-download alternatives (e.g. the OpenCode README's
-     direct `.ts` curl) with clone-based equivalents.
-2. **plugins-claude/install.sh** — `MARKETPLACE_REPO="..."` → `MIRROR_WEB`
-   (the CLI accepts a full git URL). Banner URL line and header-comment
-   examples → `MIRROR_WEB`. Do NOT touch `MARKETPLACE_NAME` or the
-   `@harness-interop` suffixes — the marketplace *name* comes from
-   marketplace.json and is host-independent.
-3. **plugins-opencode/install.sh** — `RAW_BASE` → the mirror's raw base
-   (use the best probe candidate even under `RAW_BLOCKED`: a dead fallback
-   must fail loudly *at the mirror*, not silently fetch foreign code from the
-   public repo). Banner URL → `MIRROR_WEB`.
-4. **README REPL instructions** —
-   `/plugin marketplace add SRC_OWNER/SRC_REPO` →
-   `/plugin marketplace add MIRROR_WEB`.
-5. **plugin.json `repository` fields** → `MIRROR_WEB`.
-6. **verify-release.sh raw-URL watch pattern** (§5c) → the mirror's raw URL
-   prefix, so the release gate keeps watching the mirror's own links.
-7. **Mirror notice** at the top of the root README — one blockquote line,
-   deliberately `<`-free (no HTML comment — corruption bait, see Edit
-   discipline). Insert only if the `mirror-of:` marker is absent (idempotency
-   guard), and prepend via Bash, not Edit — the file starts with an HTML
-   `<div>`, a corruptible anchor:
-   ```bash
-   grep -q 'mirror-of:' README.md || { printf '%s\n\n' \
-     '> 🔁 **사내 미러** (mirror-of: https://github.com/SRC_OWNER/SRC_REPO) — 변경·이슈는 public 원본에서; 갱신은 `/merge-upstream` → `/mirror-localize`.' \
-     | cat - README.md > README.md.new && mv README.md.new README.md; }
-   ```
-
-## Leftover Gate — must pass before committing
-
-```bash
-git grep -n "SRC_OWNER/SRC_REPO"
-```
-
-Every remaining hit must be one of:
-
-- the mirror-notice block (`mirror-of:` marker and its blockquote), or
-- a file under `.claude/skills/` (the workflow docs legitimately name the
-  source), or
-- `.env.example` — its `REMOTE_REPO=` line names the public source by design:
-  that variable is the upstream pointer `merge-upstream` falls back to.
-  Localizing it would point the mirror's upstream at itself.
-
-Anything else means the sweep missed a spot — fix it and re-run the gate
-until it is clean. **The gate is the definition of done.** A run with
-unexplained leftovers has FAILED: do not commit, do not push, and never
-report success "because the core files were done" — partial localization
-(install docs silently pointing colleagues at the public repo) is precisely
-the bug this skill exists to prevent.
-
-## Commit (no push)
-
-```bash
-git add -A
-git commit -m "Localize mirror self-references (source → origin)"
-bash verify-release.sh HEAD     # require: ✓ RELEASE OK
-```
-
-If `verify-release.sh HEAD` fails, fix and commit again before anything is
-pushed. Pushing itself is left to the caller: on first setup the user pushes;
-on maintenance runs, `merge-upstream`'s post-merge flow pushes after this
-skill completes.
-
-## When this skill runs
-
-- **First run**: right after the initial mirror push to the internal host.
-- **Maintenance**: from `merge-upstream`'s post-merge actions (see that
-  skill's `SKILL.local.md`) — after every merge, before every push.
+- **First setup**: right after the initial mirror push + `.env` creation —
+  invoke once; the script pushes at the end.
+- **Maintenance**: `merge-upstream`'s post-merge actions invoke this skill
+  after every merge, before its own push.
+- If upstream reshapes the README install cells, update the literal
+  templates inside `localize.sh` — they are hardcoded on purpose.
