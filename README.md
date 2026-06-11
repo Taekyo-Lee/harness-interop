@@ -49,8 +49,3 @@ harness-interop/
 
 💻 **공통 요구사항:** Linux / macOS / WSL (native Windows 미지원 — 셸 스크립트 기반)
 
-## 👤 만든이
-
-**Jet** ([Guru Cat](https://github.com/Taekyo-Lee)) · gurucat72@gmail.com
-
-라이선스: MIT
