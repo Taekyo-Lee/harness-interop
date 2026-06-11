@@ -27,7 +27,10 @@ for p in \
   plugins-claude/install.sh \
   plugins-opencode/install.sh \
   verify-release.sh \
-  README.md
+  README.md \
+  .claude/skills/merge-upstream/SKILL.md \
+  .claude/skills/merge-upstream/SKILL.local.md \
+  .claude/skills/mirror-localize/SKILL.md
 do
   if has "$p"; then ok "$p"; else bad "누락: $p"; fi
 done
@@ -79,6 +82,7 @@ for p in $forbidden_exact; do
   if has "$p"; then bad "존재하면 안 됨: $p"; else ok "없음: $p"; fi
 done
 if printf '%s\n' "$tree" | grep -q '^_reference/'; then bad "존재하면 안 됨: _reference/*"; else ok "없음: _reference/*"; fi
+if printf '%s\n' "$tree" | grep -q '^\.claude/skilss/'; then bad "존재하면 안 됨: .claude/skilss/* (skills 오타 회귀)"; else ok "없음: .claude/skilss/*"; fi
 
 echo "[$REF] 5. 일반 규칙 (트리 전체에서 유도)"
 # 5a. 모든 *.json 이 유효한 JSON 인가
