@@ -16,7 +16,7 @@ set -euo pipefail
 
 MARKETPLACE_REPO="Taekyo-Lee/harness-interop"
 MARKETPLACE_NAME="harness-interop"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd)"   # 파이프 실행(curl|bash)이면 BASH_SOURCE 가 비어 cwd 가 됨
 PLUGINS_DIR="$SCRIPT_DIR"   # 이 스크립트는 plugins-claude/ 안에 살고, 형제 폴더들이 곧 플러그인
 
 # ── 색·커서 제어 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문·재그리기 없음)
@@ -246,14 +246,28 @@ selected=("${deduped[@]}")
 # ── 실행 (claude CLI 의 상세 출력은 캡처해 두고, 실패할 때만 보여줌)
 say ""
 say "${D}→ marketplace 준비 중 (harness-interop)…${R}"
+out_add=""; out_upd=""; out_add2=""
 if out_add="$(claude plugin marketplace add "$MARKETPLACE_REPO" 2>&1)"; then
   say "${GR}✓${R} marketplace 등록됨"
-elif out_upd="$(claude plugin marketplace update "$MARKETPLACE_NAME" 2>&1)"; then
-  say "${GR}✓${R} marketplace 갱신됨 ${D}(이미 등록되어 있음)${R}"
 else
-  say "${RD}✗${R} marketplace 준비 실패 — claude 출력:" >&2
-  printf '%s\n' "$out_add" "${out_upd:-}" | sed 's/^/    /' >&2
-  exit 1
+  # add 실패 = ① 이미 등록되어 있음 ② CLI 가 이 형태를 직접 못 받음 (전체 URL 은
+  # github.com 밖 — 예: 사내 git 호스트 — 에서 미지원). ② 대비: clone 으로 받아
+  # 로컬 경로로 add. 캐시 위치를 고정해 두면 재실행 때 marketplace 갱신 출처도 됨.
+  cache=""
+  if printf '%s' "$MARKETPLACE_REPO" | grep -q '://' && command -v git >/dev/null 2>&1; then
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/harness-interop-marketplace"
+    rm -rf "$cache"
+    git clone -q --depth 1 "$MARKETPLACE_REPO" "$cache" 2>/dev/null || cache=""
+  fi
+  if out_upd="$(claude plugin marketplace update "$MARKETPLACE_NAME" 2>&1)"; then
+    say "${GR}✓${R} marketplace 갱신됨 ${D}(이미 등록되어 있음)${R}"
+  elif [ -n "$cache" ] && out_add2="$(claude plugin marketplace add "$cache" 2>&1)"; then
+    say "${GR}✓${R} marketplace 등록됨 ${D}(clone 경유: $cache)${R}"
+  else
+    say "${RD}✗${R} marketplace 준비 실패 — claude 출력:" >&2
+    printf '%s\n' "$out_add" "$out_upd" "$out_add2" | sed '/^$/d; s/^/    /' >&2
+    exit 1
+  fi
 fi
 
 fail_n=0
