@@ -35,6 +35,8 @@ OpenCode 가 이 플러그인을 로드할 때마다 **수렴 시퀀스**가 돕
 bash <(curl -fsSL https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/install.sh)
 ```
 
+설치 스크립트는 파일 복사에 더해 **사전설정**(opencode.json `instructions` 등록 + `personal.md` 안내 헤더 + `.gitignore`)까지 마치므로 **첫 OpenCode 세션부터 바로 동작**합니다.
+
 또는 파일 직접 다운로드:
 
 ```bash
@@ -43,6 +45,8 @@ curl -fsSL \
   https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main/plugins-opencode/memory-bridge-opencode/plugin/memory-bridge-opencode.ts \
   -o .opencode/plugin/memory-bridge-opencode.ts
 ```
+
+> ⚠ **직접 다운로드(파일 복사만)로 설치한 경우**: 설정은 플러그인이 첫 로드 때 스스로 하지만, OpenCode 가 `opencode.json` 을 세션 시작 때 읽는 탓에 **그 첫 세션의 모델은 메모리 지침을 보지 못합니다** (화면에 안내 한 줄이 출력됨). **메모리 동작은 둘째 세션부터** — 설치 스크립트 경로엔 이 제약이 없습니다.
 
 > **설치 위치는 현재 프로젝트 고정** (`.opencode/plugin/`). global(`~/.config/opencode/plugin/`) 은 자가 설정형 플러그인이 *여는 모든 프로젝트*를 수정하게 되어 UI 에서 이유와 함께 비활성으로 표시됩니다.
 
