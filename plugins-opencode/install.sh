@@ -227,6 +227,77 @@ for p in "${selected[@]}"; do
 done
 selected=("${deduped[@]}")
 
+# ── 사전설정 (memory-bridge-opencode · project 설치 전용) ──────────────────
+# 플러그인의 self-config 와 같은 결과물을 설치 시점에 미리 만든다. OpenCode 는
+# opencode.json 을 세션 시작 때 읽으므로, 로드 시점 self-config 만으로는 "등록한
+# 그 세션"이 지침을 못 봐 첫 세션이 조용히 실패한다 (2026-06-12 실측). 멱등이며
+# 플러그인 쪽이 안전망으로 같은 로직을 유지한다 — 항목을 바꾸면
+# memory-bridge-opencode.ts 의 ensureSetup/ensurePersonalMd 도 함께 갱신할 것.
+preconfigure_memory_bridge() {
+  local proj="$PWD"
+
+  # 1) opencode.json — instructions 에 두 파일 등록 (기존 설정 병합 보존)
+  if command -v jq >/dev/null 2>&1; then
+    local tmp="$proj/.opencode-json.tmp"
+    { if [ -f "$proj/opencode.json" ]; then cat "$proj/opencode.json"; else echo '{}'; fi; } \
+      | jq '.instructions = ((.instructions // []) + ([".opencode/personal.md", ".opencode/from-claude.md"] - (.instructions // [])))' \
+      > "$tmp" && mv "$tmp" "$proj/opencode.json"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$proj/opencode.json" <<'PYEOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+try:
+    cfg = json.loads(p.read_text(encoding="utf-8"))
+except Exception:
+    cfg = {}
+ins = cfg.get("instructions") if isinstance(cfg.get("instructions"), list) else []
+for e in [".opencode/personal.md", ".opencode/from-claude.md"]:
+    if e not in ins:
+        ins.append(e)
+cfg["instructions"] = ins
+p.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+PYEOF
+  else
+    return 1   # 병합 도구 없음 — 플러그인 self-config 가 받침 (첫 세션 안내만 남김)
+  fi
+
+  # 2) .gitignore — 상위 패턴(예: ".opencode/")에 이미 덮이는 항목은 건너뜀
+  local gi="$proj/.gitignore" e d covered
+  local add=()
+  for e in ".opencode/personal.md" ".opencode/from-claude.md" ".opencode/.cc-memory-path" \
+           ".opencode/plugin/memory-bridge-opencode.ts" ".opencode/memory-bridge.log"; do
+    covered=""
+    if [ -f "$gi" ]; then
+      if grep -qxF "$e" "$gi"; then covered=1; fi
+      d="$e"
+      while [ -z "$covered" ] && [ "${d#*/}" != "$d" ]; do
+        d="${d%/*}"
+        if grep -qxF "$d/" "$gi"; then covered=1; fi
+      done
+    fi
+    [ -n "$covered" ] || add+=("$e")
+  done
+  if [ "${#add[@]}" -gt 0 ]; then
+    { if [ -f "$gi" ]; then sed -e '$a\' "$gi"; fi
+      printf '%s\n' "${add[@]}"; } > "$gi.new" && mv "$gi.new" "$gi"
+  fi
+
+  # 3) personal.md — 메모리 안내 헤더 (플러그인의 PERSONAL_HEADER 와 동일 텍스트)
+  mkdir -p "$proj/.opencode"
+  local pm="$proj/.opencode/personal.md" head_ok=""
+  if [ -f "$pm" ]; then
+    case "$(head -c 4 "$pm")" in '<!--') head_ok=1 ;; esac
+  fi
+  if [ -z "$head_ok" ]; then
+    { printf '%s\n' \
+        '<!-- memory-bridge-opencode: this file is your project-scoped personal memory.' \
+        '     When asked to remember something for this project, append it to THIS' \
+        '     file (.opencode/personal.md) as a short plain bullet.' \
+        '     Synced to Claude Code memory on each turn. -->' ''
+      if [ -f "$pm" ]; then cat "$pm"; fi; } > "$pm.new" && mv "$pm.new" "$pm"
+  fi
+}
+
 # ── 설치 = 파일 복사 (repo 사본 우선, 없으면 GitHub raw 에서 다운로드)
 say ""
 mkdir -p "$DEST"
@@ -267,10 +338,27 @@ done
 
 say ""
 [ "$fail_n" -eq 0 ] || die "${fail_n}개 플러그인 설치 실패"
+
+# memory-bridge-opencode 가 project 로 설치됐으면 사전설정까지 (첫 세션부터 동작하게)
+mb_selected=""; preconfig=""
+for p in "${selected[@]}"; do [ "$p" = "memory-bridge-opencode" ] && mb_selected=1; done
+if [ "$scope" = "project" ] && [ -n "$mb_selected" ]; then
+  if preconfigure_memory_bridge; then
+    preconfig=1
+    say "${GR}✓${R} 사전설정 완료 ${D}(opencode.json instructions · personal.md 헤더 · .gitignore)${R}"
+  fi
+fi
+
 if [ "$scope" = "project" ]; then
   say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}($DEST)${R}"
-  say "${D}이 프로젝트에서 OpenCode 를 열면 플러그인이 자가 설정(opencode.json instructions + .gitignore)을 수행합니다.${R}"
+  if [ -n "$preconfig" ]; then
+    say "${D}첫 OpenCode 세션부터 바로 동작합니다 — \"○○ 기억해줘\" 로 시험해 보세요.${R}"
+  elif [ -n "$mb_selected" ]; then
+    say "${RD}!${R} jq/python3 이 없어 사전설정을 건너뛰었습니다 — 첫 OpenCode 세션은 자가설정 전용이고, ${B}메모리 동작은 둘째 세션부터${R}입니다."
+  else
+    say "${D}이 프로젝트에서 OpenCode 를 열면 플러그인이 자가 설정(opencode.json instructions + .gitignore)을 수행합니다.${R}"
+  fi
 else
   say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}($DEST)${R}"
-  say "${D}이제 이 머신에서 여는 모든 프로젝트에 플러그인이 로드됩니다 (프로젝트별 자가 설정은 처음 열 때 수행).${R}"
+  say "${D}이제 이 머신에서 여는 모든 프로젝트에 플러그인이 로드됩니다 (프로젝트별 자가 설정은 처음 열 때 수행 — 각 프로젝트의 첫 세션은 자가설정 전용, 메모리 동작은 둘째 세션부터).${R}"
 fi
