@@ -296,7 +296,16 @@ async function removeCCMemoryIndexEntry(directory: string, ccMemoryDir: string):
 async function ensureCCMemoryIndex(directory: string, ccMemoryDir: string, notes: string): Promise<void> {
   const memoryIndexPath = join(ccMemoryDir, "MEMORY.md")
   let content = ""
-  try { content = await readFile(memoryIndexPath, "utf8") } catch { return }
+  try {
+    content = await readFile(memoryIndexPath, "utf8")
+  } catch {
+    // CC 를 아직 안 쓴 프로젝트: MEMORY.md 가 없다. 그런데 MEMORY.md 는 CC 가
+    // 세션마다 로드하는 유일한 인덱스라, 없으면 from-opencode.md 가 도착해
+    // 있어도 CC 는 영영 모른다. 최소 인덱스를 만들어 entry 를 단다 — 이
+    // 함수는 notes 가 실제로 있을 때만 불리므로 유령 인덱스는 안 생긴다.
+    content = "# Memory index\n"
+    await log(directory, "MEMORY.md: absent (CC unused here) -> creating minimal index")
+  }
 
   const summary = buildSummary(notes)
   const entry = `- [OpenCode personal notes](from-opencode.md) — ${summary}`
