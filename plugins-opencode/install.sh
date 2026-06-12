@@ -14,7 +14,7 @@
 set -euo pipefail
 
 RAW_BASE="https://raw.githubusercontent.com/Taekyo-Lee/harness-interop/main"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd)"   # 파이프 실행(curl|bash)이면 BASH_SOURCE 가 비어 cwd 가 됨
 PLUGINS_DIR="$SCRIPT_DIR"   # 이 스크립트는 plugins-opencode/ 안에 살고, 형제 폴더들이 곧 플러그인
 
 # ── 색·커서 제어 (TTY + NO_COLOR 미설정일 때만; 로그/파이프에선 평문·재그리기 없음)
