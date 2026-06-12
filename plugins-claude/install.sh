@@ -285,4 +285,4 @@ done
 say ""
 [ "$fail_n" -eq 0 ] || die "${fail_n}개 플러그인 설치 실패"
 say "${GR}${B}✓ 완료${R} — ${selected[*]} ${D}(scope: $scope)${R}"
-say "${D}다음 Claude Code 세션을 종료(SessionEnd)하면 <project>/.opencode/from-claude.md 가 생성됩니다.${R}"
+say "${D}다음 Claude Code 세션을 열면 바로(SessionStart), 이후 턴이 끝날 때마다(Stop) <project>/.opencode/from-claude.md 가 동기화됩니다.${R}"
