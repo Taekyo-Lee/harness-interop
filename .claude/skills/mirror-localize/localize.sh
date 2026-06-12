@@ -97,27 +97,36 @@ def sub_lines(path, key, new, label):
     changed.append(path)
     print(f'[sweep] {path} :: {label} {len(hits)}줄')
 
-# RAW_BLOCKED 일 때만: 한 줄 설치 명령들을 clone 형태로 통째 교체.
-# 핵심: 설치 명령은 "플러그인을 쓸 프로젝트 폴더"에서 실행되므로 (CC local scope =
-# cwd, OC .opencode/ = cwd), clone 은 반드시 /tmp 로 — 프로젝트 안에 repo 가
-# 증식하면 안 된다. (치환 결과는 의도적 하드코딩 — upstream 셀 문구가 바뀌면 갱신)
+# 설치 명령 재작성 — probe 결과에 따라 양방향 (치환 결과는 의도적 하드코딩 —
+# upstream 셀 문구가 바뀌면 여기를 갱신).
+#   RAW_BLOCKED → clone 형태. 핵심: 설치 명령은 "플러그인을 쓸 프로젝트 폴더"에서
+#   실행되므로 (CC local scope = cwd, OC .opencode/ = cwd), clone 은 반드시 /tmp 로
+#   — 프로젝트 안에 repo 가 증식하면 안 된다.
+#   RAW_OK → public 과 같은 한 줄 설치로 (기존 clone 행도 역마이그레이션 — 2026-06-12
+#   repo public 전환으로 GHE 익명 raw 가 열리며 실제 발동).
+tmp = f'/tmp/{mr}'
+clone_cc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-claude/install.sh'
+clone_oc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-opencode/install.sh'
+# 옛 템플릿 (프로젝트 폴더 안에 clone 을 남기던 결함) — 마이그레이션 키로만 사용
+old_cc = f'git clone {mir_web}.git && bash {mr}/plugins-claude/install.sh'
+old_oc = f'git clone {mir_web}.git && bash {mr}/plugins-opencode/install.sh'
+# 미러 raw 경로 두 형식 (probe 후보 A·B) — 한 줄 설치 행을 다시 잠글 때의 키
+raw_cc = [f'{mh}/{mo}/{mr}/raw/{branch}/plugins-claude/install.sh',
+          f'{mh}/raw/{mo}/{mr}/{branch}/plugins-claude/install.sh']
+raw_oc = [f'{mh}/{mo}/{mr}/raw/{branch}/plugins-opencode/install.sh',
+          f'{mh}/raw/{mo}/{mr}/{branch}/plugins-opencode/install.sh']
+
 if not raw_ok:
-    tmp = f'/tmp/{mr}'
-    clone_cc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-claude/install.sh'
-    clone_oc = f'rm -rf {tmp} && git clone --depth 1 {mir_web}.git {tmp} && bash {tmp}/plugins-opencode/install.sh'
-    # 옛 템플릿 (프로젝트 폴더 안에 clone 을 남기던 결함) — 이미 회사화된 트리의 마이그레이션 키
-    old_cc = f'git clone {mir_web}.git && bash {mr}/plugins-claude/install.sh'
-    old_oc = f'git clone {mir_web}.git && bash {mr}/plugins-opencode/install.sh'
     row_cc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) '
               f'| Claude Code | `{clone_cc}` (플러그인 쓸 프로젝트 폴더에서 실행 · 대화형) |')
     row_oc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) '
               f'| OpenCode | `{clone_oc}` (플러그인 쓸 프로젝트 폴더에서 실행 · 대화형) |')
 
-    for key in (f'{src_raw}/plugins-claude/install.sh', old_cc):
+    for key in (f'{src_raw}/plugins-claude/install.sh', old_cc, *raw_cc):
         sub_lines('README.md', key, row_cc, '카탈로그 행(claude) → /tmp clone 형태')
         sub_lines('plugins-claude/install.sh', key, f'#   {clone_cc}', '헤더 주석 → /tmp clone 형태')
         sub_lines('plugins-claude/memory-bridge-claude/README.md', key, clone_cc, '설치 명령 → /tmp clone 형태')
-    for key in (f'{src_raw}/plugins-opencode/install.sh', old_oc):
+    for key in (f'{src_raw}/plugins-opencode/install.sh', old_oc, *raw_oc):
         sub_lines('README.md', key, row_oc, '카탈로그 행(opencode) → /tmp clone 형태')
         sub_lines('plugins-opencode/install.sh', key, f'#   {clone_oc}', '헤더 주석 → /tmp clone 형태')
         sub_lines('plugins-opencode/memory-bridge-opencode/README.md', key, clone_oc, '설치 명령 → /tmp clone 형태')
@@ -129,6 +138,32 @@ if not raw_ok:
     sub_lines('plugins-opencode/memory-bridge-opencode/README.md', 'clone 불필요',
               '동기화할 프로젝트 루트에서 한 줄 (`/tmp` 에 임시 clone 후 실행, 대화형 UI):',
               '안내 문구')
+else:
+    # 역마이그레이션: clone 형태(현행 /tmp 형 + 옛 in-project 형) → 한 줄 설치.
+    # 신규 upstream 행(public 한 줄)은 아래 일반 치환 규칙이 URL 만 바꿔서 처리.
+    one_cc = f'bash <(curl -fsSL {mir_raw_base}/plugins-claude/install.sh)'
+    one_oc = f'bash <(curl -fsSL {mir_raw_base}/plugins-opencode/install.sh)'
+    row_cc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-claude`](plugins-claude/memory-bridge-claude/README.md) '
+              f'| Claude Code | `curl -fsSL {mir_raw_base}/plugins-claude/install.sh \\| bash` **(추천 · 한방 설치)**'
+              f'<br>`{one_cc}` (대화형 선택) |')
+    row_oc = (f'| 🧠 **개인 메모리 공유** | [`memory-bridge-opencode`](plugins-opencode/memory-bridge-opencode/README.md) '
+              f'| OpenCode | `curl -fsSL {mir_raw_base}/plugins-opencode/install.sh \\| bash` **(추천 · 한방 설치)**'
+              f'<br>`{one_oc}` (대화형 선택) |')
+
+    for key in (f'{tmp}/plugins-claude/install.sh', old_cc):
+        sub_lines('README.md', key, row_cc, '카탈로그 행(claude) → 한 줄 설치 복원')
+        sub_lines('plugins-claude/install.sh', key, f'#   {one_cc}', '헤더 주석 → 한 줄 설치 복원')
+        sub_lines('plugins-claude/memory-bridge-claude/README.md', key, one_cc, '설치 명령 → 한 줄 설치 복원')
+    for key in (f'{tmp}/plugins-opencode/install.sh', old_oc):
+        sub_lines('README.md', key, row_oc, '카탈로그 행(opencode) → 한 줄 설치 복원')
+        sub_lines('plugins-opencode/install.sh', key, f'#   {one_oc}', '헤더 주석 → 한 줄 설치 복원')
+        sub_lines('plugins-opencode/memory-bridge-opencode/README.md', key, one_oc, '설치 명령 → 한 줄 설치 복원')
+
+    # 산문 복원 — clone 안내를 원래 문구로
+    sub_lines('plugins-claude/memory-bridge-claude/README.md', '임시 clone 후 실행',
+              '터미널 한 줄 (clone 불필요, 대화형 UI):', '안내 문구 복원')
+    sub_lines('plugins-opencode/memory-bridge-opencode/README.md', '임시 clone 후 실행',
+              '동기화할 프로젝트 루트에서 한 줄 (clone 불필요, 대화형 UI):', '안내 문구 복원')
 
 # ── 부분문자열 치환 (전 tracked 파일, 멱등) ──
 mir_raw_hostpath = re.sub(r'^https://', '', mir_raw_base)
