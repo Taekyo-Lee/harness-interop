@@ -51,6 +51,14 @@ async function ensureSetup(directory: string): Promise<void> {
     cfg.instructions = [...existing, ...toAdd]
     await writeFile(ocJsonPath, JSON.stringify(cfg, null, 2) + "\n")
     await log(directory, `opencode.json: added instructions ${toAdd.join(", ")}`)
+    // We just registered instructions MID-session, but OpenCode read
+    // opencode.json at session START — this session's model cannot see them
+    // yet. Say so loudly (console bleeds into the TUI by design here):
+    // a silent first session reads as "the plugin is broken".
+    console.error(
+      "[memory-bridge-opencode] 초기 설정 완료 — 메모리 동기화는 다음 OpenCode 세션부터 동작합니다 " +
+      "(이번 세션의 모델은 아직 메모리 지침을 보지 못합니다).",
+    )
   }
 
   // .gitignore — add entries not already covered by an existing pattern
